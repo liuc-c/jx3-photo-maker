@@ -14,9 +14,19 @@ export interface FontLoadState {
 	progress: number;
 }
 
+interface LocalFontData {
+	family: string;
+}
+
+interface LocalFontQueryWindow extends Window {
+	queryLocalFonts: () => Promise<LocalFontData[]>;
+}
+
 export const DEFAULT_FONT_FAMILY = "玄宗体";
 
 const BUILTIN_FONTS: FontEntry[] = [];
+
+const FONT_CACHE_NAME = "jx3-font-cache";
 
 interface FontStoreState {
 	builtinFonts: FontEntry[];
@@ -91,10 +101,7 @@ export async function querySystemFonts(): Promise<FontEntry[]> {
 		throw new Error("queryLocalFonts API is not supported in this browser");
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const fonts: Array<{ family: string }> = await (
-		window as any
-	).queryLocalFonts();
+	const fonts = await (window as LocalFontQueryWindow).queryLocalFonts();
 	const seen = new Set<string>();
 	const result: FontEntry[] = [];
 
@@ -157,6 +164,12 @@ export function loadCustomFont(
 				await fontFace.load();
 				document.fonts.add(fontFace);
 				onProgress?.(100);
+
+				try {
+					const cache = await caches.open(FONT_CACHE_NAME);
+					await cache.put(url, new Response(buffer.slice(0)));
+				} catch {}
+
 				resolve(entry.family);
 			} catch (err) {
 				reject(err);
@@ -167,3 +180,52 @@ export function loadCustomFont(
 		xhr.send();
 	});
 }
+
+export async function restoreCachedFonts(
+	entries: FontEntry[],
+	setFontLoadState: (family: string, state: FontLoadState) => void,
+): Promise<void> {
+	if (!("caches" in window)) return;
+
+	let cache: Cache;
+	try {
+		cache = await caches.open(FONT_CACHE_NAME);
+	} catch {
+		return;
+	}
+
+	await Promise.all(
+		entries
+			.filter((e) => e.source === "custom" && e.file)
+			.map(async (entry) => {
+				const url = `${import.meta.env.BASE_URL}fonts/${entry.file}`;
+				try {
+					const response = await cache.match(url);
+					if (!response) return;
+
+					const buffer = await response.arrayBuffer();
+					const fontFace = new FontFace(entry.family, buffer);
+					await fontFace.load();
+					document.fonts.add(fontFace);
+					setFontLoadState(entry.family, { status: "loaded", progress: 100 });
+				} catch {}
+			}),
+	);
+}
+
+export async function initFontStore(): Promise<void> {
+	const {
+		customFontsLoaded,
+		setCustomFonts,
+		setCustomFontsLoaded,
+		setFontLoadState,
+	} = useFontStore.getState();
+	if (customFontsLoaded) return;
+
+	const fonts = await fetchFontManifest();
+	setCustomFonts(fonts);
+	setCustomFontsLoaded(true);
+	await restoreCachedFonts(fonts, setFontLoadState);
+}
+
+void initFontStore();

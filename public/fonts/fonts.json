@@ -1,15 +1,87 @@
 [
 	{
+		"family": "Aa剑豪体",
+		"file": "AaJianHaoTi-2.woff2"
+	},
+	{
+		"family": "阿朱泡泡体",
+		"file": "AZhuPaoPaoTi-2.woff2"
+	},
+	{
+		"family": "包参谋慧庭手写体",
+		"file": "BaoCanMouHuiTingShouXieTi2.0-2.woff2"
+	},
+	{
+		"family": "包图小白体",
+		"file": "BaoTuXiaoBaiTi-2.woff2"
+	},
+	{
+		"family": "波塔体",
+		"file": "BoTa-2.woff2"
+	},
+	{
+		"family": "源界明朝体",
+		"file": "genkai-mincho-2.woff2"
+	},
+	{
+		"family": "衡山毛笔草书",
+		"file": "HengShanMaoBiCaoShu-2.woff2"
+	},
+	{
+		"family": "衡山毛笔行书",
+		"file": "HengShanMaoXing-1.woff2"
+	},
+	{
+		"family": "似锦字体",
+		"file": "nishiki-teki-2.woff2"
+	},
+	{
 		"family": "平方赖江湖飞扬体",
 		"file": "PingFangLaiJiangHuFeiYangTi-2.woff2"
+	},
+	{
+		"family": "平方赖江湖琅琊体",
+		"file": "PingFangLaiJiangHuLangTi-2.woff2"
 	},
 	{
 		"family": "千图小兔体",
 		"file": "QianTuXiaoTuTi-2.woff2"
 	},
 	{
+		"family": "演示佛系体",
+		"file": "Slidefu-Regular-2.woff2"
+	},
+	{
+		"family": "得意黑",
+		"file": "SmileySans-Oblique-2.woff2"
+	},
+	{
+		"family": "全字库正楷体",
+		"file": "TaiWanQuanZiKuZhengKaiTi-2.woff2"
+	},
+	{
+		"family": "小可奶酪体",
+		"file": "XiaoKeNaiLaoTiShangYongMianFei@QingKeZiTi-2.woff2"
+	},
+	{
 		"family": "玄宗体",
-		"file": "XuanZongTi-v0.1.otf"
+		"file": "XuanZongTi-v0.1.woff2"
+	},
+	{
+		"family": "也字工厂小石头",
+		"file": "YeZiGongChangXiaoShiTou-2.woff2"
+	},
+	{
+		"family": "玉葱楷书激",
+		"file": "YuNEKI゙KaiShuJiWuLiaoBanv6-2.woff2"
+	},
+	{
+		"family": "舟方日明体",
+		"file": "ZhouFangRiMingTi-2.woff2"
+	},
+	{
+		"family": "字库江湖古风体",
+		"file": "ZiKuJiangHuGuFengTi-2.woff2"
 	},
 	{
 		"family": "文心喜乐体",

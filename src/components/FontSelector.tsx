@@ -1,4 +1,4 @@
-import { ChevronDown, Loader2, Search, Upload } from "lucide-react";
+import { ChevronDown, Download, Loader2, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { FontEntry } from "@/store/font-store";
 import {
-	fetchFontManifest,
+	initFontStore,
 	loadCustomFont,
 	loadFontFile,
 	querySystemFonts,
@@ -36,6 +36,7 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [loadingLocal, setLoadingLocal] = useState(false);
+	const [loadingAll, setLoadingAll] = useState(false);
 	const fontInputRef = useRef<HTMLInputElement | null>(null);
 
 	const builtinFonts = useFontStore((s) => s.builtinFonts);
@@ -48,18 +49,13 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 
 	const customFonts = useFontStore((s) => s.customFonts);
 	const customFontsLoaded = useFontStore((s) => s.customFontsLoaded);
-	const setCustomFonts = useFontStore((s) => s.setCustomFonts);
-	const setCustomFontsLoaded = useFontStore((s) => s.setCustomFontsLoaded);
 	const fontLoadStates = useFontStore((s) => s.fontLoadStates);
 	const setFontLoadState = useFontStore((s) => s.setFontLoadState);
 
 	useEffect(() => {
 		if (customFontsLoaded) return;
-		fetchFontManifest().then((fonts) => {
-			setCustomFonts(fonts);
-			setCustomFontsLoaded(true);
-		});
-	}, [customFontsLoaded, setCustomFonts, setCustomFontsLoaded]);
+		void initFontStore();
+	}, [customFontsLoaded]);
 
 	const allFonts = useMemo(() => {
 		const all = [...builtinFonts, ...customFonts, ...uploadedFonts];
@@ -121,6 +117,39 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 		},
 		[addUploadedFont, onChange],
 	);
+
+	const unloadedCustomFonts = useMemo(
+		() =>
+			customFonts.filter(
+				(f) =>
+					f.source === "custom" &&
+					fontLoadStates[f.family]?.status !== "loaded" &&
+					fontLoadStates[f.family]?.status !== "loading",
+			),
+		[customFonts, fontLoadStates],
+	);
+
+	const handleLoadAllFonts = useCallback(async () => {
+		if (loadingAll || unloadedCustomFonts.length === 0) return;
+		setLoadingAll(true);
+		try {
+			await Promise.all(
+				unloadedCustomFonts.map(async (f) => {
+					setFontLoadState(f.family, { status: "loading", progress: 0 });
+					try {
+						await loadCustomFont(f, (progress) => {
+							setFontLoadState(f.family, { status: "loading", progress });
+						});
+						setFontLoadState(f.family, { status: "loaded", progress: 100 });
+					} catch {
+						setFontLoadState(f.family, { status: "error", progress: 0 });
+					}
+				}),
+			);
+		} finally {
+			setLoadingAll(false);
+		}
+	}, [loadingAll, unloadedCustomFonts, setFontLoadState]);
 
 	const handleSelectFont = useCallback(
 		async (f: FontEntry) => {
@@ -210,7 +239,7 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 									<button
 										key={`${f.source}-${f.family}`}
 										type="button"
-										className={`relative flex w-full cursor-pointer flex-col gap-0.5 overflow-hidden rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent ${
+										className={`relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent ${
 											f.family === value ? "bg-accent" : ""
 										} ${isLoading ? "pointer-events-none" : ""}`}
 										onClick={() => void handleSelectFont(f)}
@@ -221,7 +250,7 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 												style={{ width: `${loadState.progress}%` }}
 											/>
 										)}
-										<span className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground">
+										<span className="relative z-10 flex shrink-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
 											{f.family.startsWith("custom-")
 												? f.family.replace("custom-", "")
 												: f.family}
@@ -240,20 +269,38 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 											)}
 											{isError && " (加载失败，点击重试)"}
 										</span>
-										<span
-											className="relative z-10 text-sm"
-											style={{
-												fontFamily: isLoaded ? f.family : undefined,
-											}}
-										>
-											{PREVIEW_TEXT}
-										</span>
+										{(f.source !== "custom" || isLoaded) && (
+											<span
+												className="relative z-10 ml-auto text-2xl"
+												style={{
+													fontFamily: f.family,
+												}}
+											>
+												{PREVIEW_TEXT}
+											</span>
+										)}
 									</button>
 								);
 							})}
 						</div>
 
 						<div className="flex flex-col gap-2 border-t px-3 py-2">
+							{unloadedCustomFonts.length > 0 && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="w-full"
+									onClick={() => void handleLoadAllFonts()}
+									disabled={loadingAll}
+								>
+									{loadingAll ? (
+										<Loader2 className="size-3.5 animate-spin" />
+									) : (
+										<Download className="size-3.5" />
+									)}
+									{loadingAll ? "加载中..." : "一键加载所有字体"}
+								</Button>
+							)}
 							<Button
 								variant="outline"
 								size="sm"

@@ -259,12 +259,15 @@ export function useFabricEditor() {
 				const state = useEditorStore.getState();
 				const c = state.canvas;
 				if (!c) return;
-				const obj = c.getActiveObject();
-				if (!obj) return;
-				if (isEditableText(obj) && obj.isEditing) return;
+				const activeObjects = c.getActiveObjects();
+				if (!activeObjects.length) return;
+				if (activeObjects.length === 1) {
+					const only = activeObjects[0] ?? null;
+					if (only instanceof IText && only.isEditing) return;
+				}
 				event.preventDefault();
-				c.remove(obj);
 				c.discardActiveObject();
+				for (const obj of activeObjects) c.remove(obj);
 				state.setActiveObject(null);
 				c.requestRenderAll();
 			}
@@ -416,8 +419,7 @@ export function useFabricEditor() {
 			scaleY: 1,
 		});
 
-		bg.canvas = canvas;
-		canvas.backgroundImage = bg;
+		canvas.set("backgroundImage", bg);
 		canvas.requestRenderAll();
 
 		setImage({
@@ -436,6 +438,7 @@ export function useFabricEditor() {
 			top: image.height / 2,
 			originX: "center",
 			originY: "center",
+			editable: false,
 			fill: color,
 			fontFamily: DEFAULT_FONT_FAMILY,
 			fontSize: Math.max(
@@ -454,8 +457,6 @@ export function useFabricEditor() {
 		canvas.add(it);
 		canvas.setActiveObject(it);
 		setActiveObject(it);
-		it.enterEditing();
-		it.selectAll();
 		canvas.requestRenderAll();
 	}
 
@@ -527,6 +528,7 @@ export function useFabricEditor() {
 			top: image.height / 2,
 			originX: "center",
 			originY: "center",
+			editable: false,
 			fill: snapshot.fill,
 			fontFamily: snapshot.fontFamily,
 			fontSize: snapshot.fontSize,
@@ -655,10 +657,10 @@ export function useFabricEditor() {
 
 	function deleteActiveObject() {
 		if (!canvas) return;
-		const obj = canvas.getActiveObject() ?? null;
-		if (!obj) return;
-		canvas.remove(obj);
+		const activeObjects = canvas.getActiveObjects();
+		if (!activeObjects.length) return;
 		canvas.discardActiveObject();
+		for (const obj of activeObjects) canvas.remove(obj);
 		setActiveObject(null);
 		canvas.requestRenderAll();
 	}
@@ -669,7 +671,7 @@ export function useFabricEditor() {
 		await document.fonts.ready;
 
 		const prevBg = canvas.backgroundColor;
-		if (format === "jpeg") canvas.backgroundColor = "#ffffff";
+		if (format === "jpeg") canvas.set("backgroundColor", "#ffffff");
 
 		const blob = await canvas.toBlob({
 			format,
@@ -678,7 +680,7 @@ export function useFabricEditor() {
 			enableRetinaScaling: false,
 		});
 
-		canvas.backgroundColor = prevBg;
+		canvas.set("backgroundColor", prevBg);
 		canvas.requestRenderAll();
 
 		if (!blob) return;

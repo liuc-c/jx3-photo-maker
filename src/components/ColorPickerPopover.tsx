@@ -120,6 +120,7 @@ export function ColorPickerPopover({
 						alt={matchedSchool.label}
 						title={matchedSchool.label}
 						className="size-3.5"
+						style={{ marginRight: 10 }}
 						draggable={false}
 					/>
 				)}

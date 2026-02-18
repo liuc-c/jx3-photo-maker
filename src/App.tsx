@@ -242,6 +242,7 @@ function App() {
 		}
 
 		const vertical = isTextVertical(activeText);
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		setIsVerticalValue(vertical);
 
 		const rawText = activeText.text ?? "";
@@ -327,7 +328,7 @@ function App() {
 				<div className="relative min-h-0 min-w-0 flex-1">
 					<main
 						ref={containerRef}
-						className="flex h-full items-center justify-center overflow-auto bg-muted/20 p-4"
+						className="h-full overflow-auto bg-muted/20 p-4"
 						aria-label="图片上传与编辑区域"
 						onDragOver={(e) => e.preventDefault()}
 						onDrop={async (e) => {
@@ -336,30 +337,36 @@ function App() {
 							await onPickFile(file);
 						}}
 					>
-						{!image && (
-							<div className="flex min-h-[240px] w-[min(720px,80vw)] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-background/80 p-6 text-center">
-								<div className="text-sm text-muted-foreground">
-									拖拽上传剑网三截图，或点击选择文件（纯浏览器本地处理）
+						<div className="flex min-h-full min-w-full">
+							{!image && (
+								<div className="m-auto flex min-h-[240px] w-[min(720px,80vw)] shrink-0 flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-background/80 p-6 text-center">
+									<div className="text-sm text-muted-foreground">
+										拖拽上传剑网三截图，或点击选择文件（纯浏览器本地处理）
+									</div>
+									<Button onClick={openFilePicker}>选择图片</Button>
 								</div>
-								<Button onClick={openFilePicker}>选择图片</Button>
+							)}
+
+							<div
+								className={
+									image ? "relative m-auto shrink-0" : "h-0 w-0 overflow-hidden"
+								}
+							>
+								<canvas ref={canvasElRef} className="rounded-lg shadow-sm" />
 							</div>
-						)}
 
-						<div className={image ? "relative" : "h-0 w-0 overflow-hidden"}>
-							<canvas ref={canvasElRef} className="rounded-lg shadow-sm" />
+							<input
+								ref={fileInputRef}
+								type="file"
+								accept="image/*"
+								className="hidden"
+								onChange={async (e) => {
+									const file = e.target.files?.[0] ?? null;
+									e.target.value = "";
+									await onPickFile(file);
+								}}
+							/>
 						</div>
-
-						<input
-							ref={fileInputRef}
-							type="file"
-							accept="image/*"
-							className="hidden"
-							onChange={async (e) => {
-								const file = e.target.files?.[0] ?? null;
-								e.target.value = "";
-								await onPickFile(file);
-							}}
-						/>
 					</main>
 
 					{image && (
@@ -418,16 +425,16 @@ function App() {
 					<div className="flex flex-col gap-6">
 						<div className="flex items-center justify-between">
 							<div className="text-sm font-semibold">工具</div>
-							<div className="flex items-center gap-2">
+							<div className="flex items-center gap-1.5">
 								<Button
-									size="icon-sm"
+									size="sm"
 									variant="outline"
-									disabled={!image}
-									onClick={handleExport}
-									aria-label="导出保存"
-									title="导出保存"
+									onClick={openFilePicker}
+									aria-label="导入图片"
+									title="导入图片"
 								>
-									<Download className="size-4" />
+									<ImagePlus className="size-4" />
+									选择图片
 								</Button>
 								<Button
 									size="icon-sm"
@@ -443,16 +450,50 @@ function App() {
 								</Button>
 							</div>
 						</div>
+						{image && (
+							<div className="text-xs text-muted-foreground">
+								原图分辨率：{image.width}×{image.height}
+							</div>
+						)}
 
-						<Button
-							className="w-full"
-							size="lg"
-							disabled={!image}
-							onClick={() => addText("请输入")}
-						>
-							<Plus className="size-5" />
-							添加文字
-						</Button>
+						<div className="flex gap-2">
+							<Button
+								className="flex-1"
+								disabled={!image}
+								onClick={() => addText("请输入")}
+							>
+								<Plus className="size-4" />
+								添加文字
+							</Button>
+							<div className="flex rounded-md border p-0.5">
+								<Button
+									type="button"
+									size="xs"
+									variant={exportFormat === "png" ? "default" : "ghost"}
+									onClick={() => setExportFormat("png")}
+									title="导出 PNG"
+								>
+									PNG
+								</Button>
+								<Button
+									type="button"
+									size="xs"
+									variant={exportFormat === "jpeg" ? "default" : "ghost"}
+									onClick={() => setExportFormat("jpeg")}
+									title="导出 JPG"
+								>
+									JPG
+								</Button>
+							</div>
+							<Button
+								variant="outline"
+								disabled={!image}
+								onClick={handleExport}
+							>
+								<Download className="size-4" />
+								导出
+							</Button>
+						</div>
 
 						<div className="flex gap-2">
 							<Popover>
@@ -586,51 +627,13 @@ function App() {
 							</Popover>
 						</div>
 
-						<div className="flex flex-col gap-2">
-							<div className="flex gap-2">
-								<div className="flex rounded-md border p-1">
-									<Button
-										type="button"
-										size="xs"
-										variant={exportFormat === "png" ? "default" : "ghost"}
-										onClick={() => setExportFormat("png")}
-										title="导出 PNG"
-									>
-										PNG
-									</Button>
-									<Button
-										type="button"
-										size="xs"
-										variant={exportFormat === "jpeg" ? "default" : "ghost"}
-										onClick={() => setExportFormat("jpeg")}
-										title="导出 JPG"
-									>
-										JPG
-									</Button>
-								</div>
-								<Button
-									className="flex-1"
-									disabled={!image}
-									onClick={handleExport}
-								>
-									<Download className="size-4" />
-									导出保存
-								</Button>
-							</div>
-							{image && (
-								<div className="text-xs text-muted-foreground">
-									原图分辨率：{image.width}×{image.height}
-								</div>
-							)}
-						</div>
-
 						<div className="h-px bg-border" />
 
 						<div className="flex flex-col gap-3">
 							<div className="text-sm font-semibold">属性编辑</div>
 							{!activeText && (
 								<div className="text-sm text-muted-foreground">
-									选中文字后可编辑内容/字体/颜色/大小等
+									选中文字后在右侧编辑内容/字体/颜色/大小
 								</div>
 							)}
 
