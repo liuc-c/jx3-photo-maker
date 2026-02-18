@@ -36,8 +36,12 @@ import {
 } from "@/hooks/useFabricEditor";
 import { useEditorStore } from "@/store/editor-store";
 import { DEFAULT_FONT_FAMILY } from "@/store/font-store";
+import { useStyleInheritanceStore } from "@/store/style-inheritance-store";
 
 type StrokeStyle = "outline" | "shadow" | "hybrid";
+
+const STROKE_WIDTH_MIN = 1;
+const STROKE_WIDTH_MAX = 100;
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
@@ -71,7 +75,11 @@ function createStrokePatch(
 	color: string,
 	width: number,
 ) {
-	const safeWidth = clamp(Math.round(width), 1, 20);
+	const safeWidth = clamp(
+		Math.round(width),
+		STROKE_WIDTH_MIN,
+		STROKE_WIDTH_MAX,
+	);
 	if (!enabled) {
 		return {
 			stroke: null,
@@ -232,6 +240,12 @@ function App() {
 	const applyStrokeStyle = useCallback(
 		(enabled: boolean, style: StrokeStyle, color: string, width: number) => {
 			applyToActiveText(createStrokePatch(enabled, style, color, width));
+			useStyleInheritanceStore.getState().setInheritedStyle({
+				strokeEnabled: enabled,
+				strokeStyle: style,
+				strokeColor: color,
+				strokeWidth: width,
+			});
 		},
 		[applyToActiveText],
 	);
@@ -280,6 +294,20 @@ function App() {
 				? Math.max(1, Math.round(activeText.strokeWidth ?? 4))
 				: Math.max(1, inferredShadowStrength),
 		);
+
+		useStyleInheritanceStore.getState().setInheritedStyle({
+			fontFamily: activeText.fontFamily ?? DEFAULT_FONT_FAMILY,
+			fontSize: activeText.fontSize ?? 48,
+			fontWeight:
+				typeof activeText.fontWeight === "number"
+					? activeText.fontWeight
+					: Number(activeText.fontWeight ?? 700),
+			charSpacing: activeText.charSpacing ?? 0,
+			opacity: activeText.opacity ?? 1,
+			vertical,
+			scaleX: activeText.scaleX ?? 1,
+			scaleY: activeText.scaleY ?? 1,
+		});
 	}, [activeText]);
 
 	function openFilePicker() {
@@ -898,8 +926,8 @@ function App() {
 													</div>
 													<Slider
 														value={[strokeWidthValue]}
-														min={1}
-														max={100}
+														min={STROKE_WIDTH_MIN}
+														max={STROKE_WIDTH_MAX}
 														step={1}
 														onValueChange={([v]) => {
 															setStrokeWidthValue(v);

@@ -13,6 +13,7 @@ import {
 	loadCustomFont,
 	useFontStore,
 } from "@/store/font-store";
+import { useStyleInheritanceStore } from "@/store/style-inheritance-store";
 
 export type { SchoolPreset as Preset };
 
@@ -147,6 +148,15 @@ export function useFabricEditor() {
 			setActiveObject(c.getActiveObject() ?? null),
 		);
 		c.on("selection:cleared", () => setActiveObject(null));
+
+		c.on("object:scaling", (e) => {
+			const obj = e.target;
+			if (!isEditableText(obj)) return;
+			useStyleInheritanceStore.getState().setInheritedStyle({
+				scaleX: obj.scaleX ?? 1,
+				scaleY: obj.scaleY ?? 1,
+			});
+		});
 
 		setCanvas(c);
 		return () => {
@@ -432,7 +442,33 @@ export function useFabricEditor() {
 
 	function addText(text: string, color = "#ffffff", presetKey?: string) {
 		if (!canvas || !image) return;
-		const verticalContent = toVerticalText(text);
+
+		const inheritedStyle = useStyleInheritanceStore
+			.getState()
+			.getInheritedStyle();
+		const verticalContent = inheritedStyle.vertical
+			? toVerticalText(text)
+			: text;
+
+		let shadow: IText["shadow"] | null = null;
+		if (inheritedStyle.strokeEnabled) {
+			if (inheritedStyle.strokeStyle === "shadow") {
+				shadow = new Shadow({
+					color: inheritedStyle.strokeColor,
+					offsetX: 0,
+					offsetY: 0,
+					blur: Math.max(4, Math.round(inheritedStyle.strokeWidth * 2.2)),
+				});
+			} else if (inheritedStyle.strokeStyle === "hybrid") {
+				shadow = new Shadow({
+					color: inheritedStyle.strokeColor,
+					offsetX: 0,
+					offsetY: 0,
+					blur: Math.max(2, inheritedStyle.strokeWidth + 1),
+				});
+			}
+		}
+
 		const it = new IText(verticalContent, {
 			left: image.width / 2,
 			top: image.height / 2,
@@ -440,19 +476,41 @@ export function useFabricEditor() {
 			originY: "center",
 			editable: false,
 			fill: color,
-			fontFamily: DEFAULT_FONT_FAMILY,
-			fontSize: Math.max(
-				24,
-				Math.round(Math.min(image.width, image.height) * 0.05),
-			),
-			fontWeight: 700,
-			charSpacing: 0,
-			lineHeight: getVerticalLineHeight(0),
-			opacity: 1,
+			fontFamily: inheritedStyle.fontFamily,
+			fontSize: inheritedStyle.fontSize,
+			fontWeight: inheritedStyle.fontWeight,
+			charSpacing: inheritedStyle.charSpacing,
+			lineHeight: inheritedStyle.vertical
+				? getVerticalLineHeight(inheritedStyle.charSpacing)
+				: DEFAULT_TEXT_LINE_HEIGHT,
+			opacity: inheritedStyle.opacity,
+			scaleX: inheritedStyle.scaleX,
+			scaleY: inheritedStyle.scaleY,
+			stroke:
+				inheritedStyle.strokeEnabled &&
+				(inheritedStyle.strokeStyle === "outline" ||
+					inheritedStyle.strokeStyle === "hybrid")
+					? inheritedStyle.strokeColor
+					: null,
+			strokeWidth:
+				inheritedStyle.strokeEnabled &&
+				(inheritedStyle.strokeStyle === "outline" ||
+					inheritedStyle.strokeStyle === "hybrid")
+					? inheritedStyle.strokeStyle === "hybrid"
+						? Math.max(1, Math.round(inheritedStyle.strokeWidth * 0.6))
+						: inheritedStyle.strokeWidth
+					: 0,
+			shadow,
+			paintFirst:
+				inheritedStyle.strokeEnabled &&
+				(inheritedStyle.strokeStyle === "outline" ||
+					inheritedStyle.strokeStyle === "hybrid")
+					? "stroke"
+					: "fill",
 			objectCaching: false,
-			textAlign: "center",
+			textAlign: inheritedStyle.vertical ? "center" : "left",
 		});
-		verticalMap.set(it, true);
+		verticalMap.set(it, inheritedStyle.vertical);
 		if (presetKey) presetKeyMap.set(it, presetKey);
 		canvas.add(it);
 		canvas.setActiveObject(it);
@@ -602,6 +660,28 @@ export function useFabricEditor() {
 		obj.set(patch);
 		obj.setCoords();
 		canvas.requestRenderAll();
+
+		const { setInheritedStyle } = useStyleInheritanceStore.getState();
+		if (patch.fontFamily !== undefined) {
+			setInheritedStyle({ fontFamily: patch.fontFamily });
+		}
+		if (patch.fontSize !== undefined) {
+			setInheritedStyle({ fontSize: patch.fontSize });
+		}
+		if (patch.fontWeight !== undefined) {
+			setInheritedStyle({
+				fontWeight:
+					typeof patch.fontWeight === "number"
+						? patch.fontWeight
+						: Number(patch.fontWeight),
+			});
+		}
+		if (patch.charSpacing !== undefined) {
+			setInheritedStyle({ charSpacing: patch.charSpacing });
+		}
+		if (patch.opacity !== undefined) {
+			setInheritedStyle({ opacity: patch.opacity });
+		}
 	}
 
 	function setActiveTextVertical(vertical: boolean) {
@@ -625,6 +705,8 @@ export function useFabricEditor() {
 		});
 		obj.setCoords();
 		canvas.requestRenderAll();
+
+		useStyleInheritanceStore.getState().setInheritedStyle({ vertical });
 	}
 
 	async function setActiveFontFamily(fontFamily: string) {
