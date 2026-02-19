@@ -21,7 +21,7 @@ export interface InheritedTextStyle {
 
 const DEFAULT_INHERITED_STYLE: InheritedTextStyle = {
 	fontFamily: DEFAULT_FONT_FAMILY,
-	fontSize: 48,
+	fontSize: 100,
 	fontWeight: 700,
 	charSpacing: 0,
 	opacity: 1,
@@ -31,7 +31,7 @@ const DEFAULT_INHERITED_STYLE: InheritedTextStyle = {
 	strokeEnabled: true,
 	strokeStyle: "outline",
 	strokeColor: "#ffffff",
-	strokeWidth: 18,
+	strokeWidth: 14,
 };
 
 interface StyleInheritanceStore {
