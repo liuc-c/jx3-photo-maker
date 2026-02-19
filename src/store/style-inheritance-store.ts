@@ -22,7 +22,7 @@ export interface InheritedTextStyle {
 const DEFAULT_INHERITED_STYLE: InheritedTextStyle = {
 	fontFamily: DEFAULT_FONT_FAMILY,
 	fontSize: 100,
-	fontWeight: 700,
+	fontWeight: 100,
 	charSpacing: 0,
 	opacity: 1,
 	vertical: true,
