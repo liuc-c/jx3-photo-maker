@@ -181,6 +181,8 @@ export function useFabricEditor() {
 	}, [customFontsLoaded, setCustomFonts, setCustomFontsLoaded]);
 
 	useEffect(() => {
+		if (!customFontsLoaded) return;
+
 		const { customFonts, fontLoadStates, setFontLoadState } =
 			useFontStore.getState();
 		const defaultEntry = customFonts.find(
@@ -327,7 +329,12 @@ export function useFabricEditor() {
 			if (previewZoom <= 1) return;
 			const useMiddleButton = event.button === 1;
 			const useSpaceLeftButton = event.button === 0 && spacePressedRef.current;
-			if (!useMiddleButton && !useSpaceLeftButton) return;
+			const hasActiveObject = !!useEditorStore
+				.getState()
+				.canvas?.getActiveObject();
+			const useTouchPan =
+				event.pointerType === "touch" && event.button === 0 && !hasActiveObject;
+			if (!useMiddleButton && !useSpaceLeftButton && !useTouchPan) return;
 
 			event.preventDefault();
 			panStateRef.current = {

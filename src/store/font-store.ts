@@ -168,7 +168,11 @@ export function loadCustomFont(
 				try {
 					const cache = await caches.open(FONT_CACHE_NAME);
 					await cache.put(url, new Response(buffer.slice(0)));
-				} catch {}
+				} catch (cacheError) {
+					if (import.meta.env.DEV) {
+						console.warn("Failed to cache font response", cacheError);
+					}
+				}
 
 				resolve(entry.family);
 			} catch (err) {
@@ -208,7 +212,11 @@ export async function restoreCachedFonts(
 					await fontFace.load();
 					document.fonts.add(fontFace);
 					setFontLoadState(entry.family, { status: "loaded", progress: 100 });
-				} catch {}
+				} catch (restoreError) {
+					if (import.meta.env.DEV) {
+						console.warn("Failed to restore cached font", restoreError);
+					}
+				}
 			}),
 	);
 }
