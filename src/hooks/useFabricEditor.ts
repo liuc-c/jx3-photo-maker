@@ -1,7 +1,7 @@
 import type { FabricObject } from "fabric";
 import { Canvas, FabricImage, IText, Shadow } from "fabric";
 import FontFaceObserver from "fontfaceobserver";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { SchoolPreset } from "@/constants/colors";
 import { JX3_SCHOOL_PRESETS } from "@/constants/colors";
 import { useResizeObserver } from "@/hooks/useResizeObserver";
@@ -23,6 +23,8 @@ export interface TextStyleSnapshot {
 	fill: string;
 	fontFamily: string;
 	fontSize: number;
+	scaleX: number;
+	scaleY: number;
 	fontWeight: number;
 	charSpacing: number;
 	opacity: number;
@@ -70,6 +72,8 @@ function clamp(value: number, min: number, max: number): number {
 
 const DEFAULT_TEXT_LINE_HEIGHT = 1.16;
 const MIN_TEXT_LINE_HEIGHT = 0.2;
+const STROKE_WIDTH_MIN = 1;
+const STROKE_WIDTH_MAX = 32;
 
 function getVerticalLineHeight(charSpacing: number): number {
 	return clamp(
@@ -79,10 +83,25 @@ function getVerticalLineHeight(charSpacing: number): number {
 	);
 }
 
-const MIN_PREVIEW_ZOOM = 0.5;
-const MAX_PREVIEW_ZOOM = 3;
+const BASE_TEXT_FONT_SIZE = 100;
 
-export { MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM };
+function toPositiveZoom(zoom: number): number {
+	if (!Number.isFinite(zoom)) return 1;
+	return zoom > 0 ? zoom : Number.MIN_VALUE;
+}
+
+function normalizeStrokeWidth(width: number): number {
+	return clamp(Math.round(width), STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
+}
+
+function getShadowBlur(width: number, soft: boolean): number {
+	const safeWidth = normalizeStrokeWidth(width);
+	return soft
+		? Math.max(4, Math.round(safeWidth * 3.2))
+		: Math.max(2, Math.round(safeWidth * 1.8 + 1));
+}
+
+const WHEEL_ZOOM_SENSITIVITY = 0.002;
 
 export function useFabricEditor() {
 	const canvasElRef = useRef<HTMLCanvasElement | null>(null);
@@ -95,8 +114,17 @@ export function useFabricEditor() {
 	const image = useEditorStore((s) => s.image);
 	const setImage = useEditorStore((s) => s.setImage);
 	const setActiveObject = useEditorStore((s) => s.setActiveObject);
+	const bumpActiveObjectRevision = useEditorStore(
+		(s) => s.bumpActiveObjectRevision,
+	);
 	const previewZoom = useEditorStore((s) => s.previewZoom);
 	const setPreviewZoomRaw = useEditorStore((s) => s.setPreviewZoom);
+	const setPreviewZoom = useCallback(
+		(zoom: number) => {
+			setPreviewZoomRaw(toPositiveZoom(zoom));
+		},
+		[setPreviewZoomRaw],
+	);
 	const panStateRef = useRef<{
 		active: boolean;
 		startX: number;
@@ -127,7 +155,7 @@ export function useFabricEditor() {
 	}, [containerSize.height, containerSize.width, image]);
 
 	const displayScale = useMemo(
-		() => fitScale * clamp(previewZoom, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM),
+		() => fitScale * toPositiveZoom(previewZoom),
 		[fitScale, previewZoom],
 	);
 
@@ -156,6 +184,12 @@ export function useFabricEditor() {
 				scaleX: obj.scaleX ?? 1,
 				scaleY: obj.scaleY ?? 1,
 			});
+			bumpActiveObjectRevision();
+		});
+
+		c.on("object:modified", (e) => {
+			if (!isEditableText(e.target)) return;
+			bumpActiveObjectRevision();
 		});
 
 		setCanvas(c);
@@ -163,7 +197,7 @@ export function useFabricEditor() {
 			setCanvas(null);
 			c.dispose();
 		};
-	}, [setActiveObject, setCanvas]);
+	}, [bumpActiveObjectRevision, setActiveObject, setCanvas]);
 
 	useEffect(() => {
 		if (customFontsLoaded) return;
@@ -310,6 +344,14 @@ export function useFabricEditor() {
 		const container = containerRef.current;
 		if (!container || !image) return;
 
+		const onWheel = (event: WheelEvent) => {
+			if (!event.ctrlKey && !event.metaKey) return;
+			event.preventDefault();
+			const factor = Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY);
+			const currentZoom = useEditorStore.getState().previewZoom;
+			setPreviewZoom(currentZoom * factor);
+		};
+
 		const setCursor = () => {
 			if (panStateRef.current.active) {
 				container.style.cursor = "grabbing";
@@ -374,6 +416,7 @@ export function useFabricEditor() {
 		};
 
 		setCursor();
+		container.addEventListener("wheel", onWheel, { passive: false });
 		container.addEventListener("pointerdown", onPointerDown);
 		window.addEventListener("pointermove", onPointerMove, { passive: false });
 		window.addEventListener("pointerup", onPointerUp);
@@ -381,6 +424,7 @@ export function useFabricEditor() {
 		container.addEventListener("auxclick", onAuxClick);
 
 		return () => {
+			container.removeEventListener("wheel", onWheel);
 			container.removeEventListener("pointerdown", onPointerDown);
 			window.removeEventListener("pointermove", onPointerMove);
 			window.removeEventListener("pointerup", onPointerUp);
@@ -388,7 +432,7 @@ export function useFabricEditor() {
 			container.removeEventListener("auxclick", onAuxClick);
 			container.style.cursor = "default";
 		};
-	}, [image, previewZoom]);
+	}, [image, previewZoom, setPreviewZoom]);
 
 	async function loadLocalImage(file: File) {
 		if (!canvas) return;
@@ -403,8 +447,7 @@ export function useFabricEditor() {
 			containerSize.width && containerSize.height
 				? Math.min(containerSize.width / w, containerSize.height / h, 1)
 				: 1;
-		const nextDisplayScale =
-			nextFitScale * clamp(previewZoom, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
+		const nextDisplayScale = nextFitScale * toPositiveZoom(previewZoom);
 
 		canvas.clear();
 		setActiveObject(null);
@@ -459,19 +502,20 @@ export function useFabricEditor() {
 
 		let shadow: IText["shadow"] | null = null;
 		if (inheritedStyle.strokeEnabled) {
+			const strokeWidth = normalizeStrokeWidth(inheritedStyle.strokeWidth);
 			if (inheritedStyle.strokeStyle === "shadow") {
 				shadow = new Shadow({
 					color: inheritedStyle.strokeColor,
 					offsetX: 0,
 					offsetY: 0,
-					blur: Math.max(4, Math.round(inheritedStyle.strokeWidth * 2.2)),
+					blur: getShadowBlur(strokeWidth, true),
 				});
 			} else if (inheritedStyle.strokeStyle === "hybrid") {
 				shadow = new Shadow({
 					color: inheritedStyle.strokeColor,
 					offsetX: 0,
 					offsetY: 0,
-					blur: Math.max(2, inheritedStyle.strokeWidth + 1),
+					blur: getShadowBlur(strokeWidth, false),
 				});
 			}
 		}
@@ -484,7 +528,7 @@ export function useFabricEditor() {
 			editable: false,
 			fill: color,
 			fontFamily: inheritedStyle.fontFamily,
-			fontSize: inheritedStyle.fontSize,
+			fontSize: BASE_TEXT_FONT_SIZE,
 			fontWeight: inheritedStyle.fontWeight,
 			charSpacing: inheritedStyle.charSpacing,
 			lineHeight: inheritedStyle.vertical
@@ -504,8 +548,13 @@ export function useFabricEditor() {
 				(inheritedStyle.strokeStyle === "outline" ||
 					inheritedStyle.strokeStyle === "hybrid")
 					? inheritedStyle.strokeStyle === "hybrid"
-						? Math.max(1, Math.round(inheritedStyle.strokeWidth * 0.6))
-						: inheritedStyle.strokeWidth
+						? Math.max(
+								1,
+								Math.round(
+									normalizeStrokeWidth(inheritedStyle.strokeWidth) * 0.6,
+								),
+							)
+						: normalizeStrokeWidth(inheritedStyle.strokeWidth)
 					: 0,
 			shadow,
 			paintFirst:
@@ -544,7 +593,9 @@ export function useFabricEditor() {
 			vertical,
 			fill: typeof obj.fill === "string" ? obj.fill : "#000000",
 			fontFamily: obj.fontFamily ?? DEFAULT_FONT_FAMILY,
-			fontSize: Math.max(10, Math.round(obj.fontSize ?? 48)),
+			fontSize: Math.max(1, Math.round(obj.fontSize ?? BASE_TEXT_FONT_SIZE)),
+			scaleX: obj.scaleX ?? 1,
+			scaleY: obj.scaleY ?? 1,
 			fontWeight:
 				typeof obj.fontWeight === "number"
 					? obj.fontWeight
@@ -552,7 +603,7 @@ export function useFabricEditor() {
 			charSpacing: Math.round(obj.charSpacing ?? 0),
 			opacity: Number(obj.opacity ?? 1),
 			stroke: typeof obj.stroke === "string" ? obj.stroke : null,
-			strokeWidth: Math.max(0, Math.round(obj.strokeWidth ?? 0)),
+			strokeWidth: clamp(Math.round(obj.strokeWidth ?? 0), 0, STROKE_WIDTH_MAX),
 			shadowColor,
 			shadowBlur,
 			paintFirst: obj.paintFirst === "fill" ? "fill" : "stroke",
@@ -596,12 +647,14 @@ export function useFabricEditor() {
 			editable: false,
 			fill: snapshot.fill,
 			fontFamily: snapshot.fontFamily,
-			fontSize: snapshot.fontSize,
+			fontSize: snapshot.fontSize ?? BASE_TEXT_FONT_SIZE,
+			scaleX: snapshot.scaleX ?? 1,
+			scaleY: snapshot.scaleY ?? 1,
 			fontWeight: snapshot.fontWeight,
 			charSpacing: snapshot.charSpacing,
 			opacity: snapshot.opacity,
 			stroke: snapshot.stroke,
-			strokeWidth: snapshot.strokeWidth,
+			strokeWidth: clamp(Math.round(snapshot.strokeWidth), 0, STROKE_WIDTH_MAX),
 			shadow: nextShadow,
 			paintFirst: snapshot.paintFirst,
 			objectCaching: false,
@@ -626,6 +679,8 @@ export function useFabricEditor() {
 			| "fontSize"
 			| "fontWeight"
 			| "charSpacing"
+			| "scaleX"
+			| "scaleY"
 			| "lineHeight"
 			| "opacity"
 			| "stroke"
@@ -688,6 +743,12 @@ export function useFabricEditor() {
 		}
 		if (patch.opacity !== undefined) {
 			setInheritedStyle({ opacity: patch.opacity });
+		}
+		if (patch.scaleX !== undefined) {
+			setInheritedStyle({ scaleX: patch.scaleX });
+		}
+		if (patch.scaleY !== undefined) {
+			setInheritedStyle({ scaleY: patch.scaleY });
 		}
 	}
 
@@ -791,10 +852,6 @@ export function useFabricEditor() {
 		const preset = presets.find((p) => p.key === presetKey);
 		if (!preset) return;
 		addText(preset.label, preset.color, preset.key);
-	}
-
-	function setPreviewZoom(zoom: number) {
-		setPreviewZoomRaw(clamp(zoom, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM));
 	}
 
 	return {

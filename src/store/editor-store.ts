@@ -17,6 +17,8 @@ interface EditorState {
 	setImage: (image: LoadedImageMeta | null) => void;
 	activeObject: FabricObject | null;
 	setActiveObject: (obj: FabricObject | null) => void;
+	activeObjectRevision: number;
+	bumpActiveObjectRevision: () => void;
 	previewZoom: number;
 	setPreviewZoom: (zoom: number) => void;
 	exportFormat: ExportFormat;
@@ -30,6 +32,9 @@ export const useEditorStore = create<EditorState>((set) => ({
 	setImage: (image) => set({ image }),
 	activeObject: null,
 	setActiveObject: (activeObject) => set({ activeObject }),
+	activeObjectRevision: 0,
+	bumpActiveObjectRevision: () =>
+		set((state) => ({ activeObjectRevision: state.activeObjectRevision + 1 })),
 	previewZoom: 1,
 	setPreviewZoom: (previewZoom) => set({ previewZoom }),
 	exportFormat: "png",

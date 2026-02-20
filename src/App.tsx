@@ -28,11 +28,10 @@ import { Switch } from "@/components/ui/switch";
 import {
 	fromVerticalText,
 	isTextVertical,
-	MAX_PREVIEW_ZOOM,
-	MIN_PREVIEW_ZOOM,
 	type TextStyleSnapshot,
 	useFabricEditor,
 } from "@/hooks/useFabricEditor";
+import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/store/editor-store";
 import { DEFAULT_FONT_FAMILY } from "@/store/font-store";
 import { useStyleInheritanceStore } from "@/store/style-inheritance-store";
@@ -40,10 +39,236 @@ import { useStyleInheritanceStore } from "@/store/style-inheritance-store";
 type StrokeStyle = "outline" | "shadow" | "hybrid";
 
 const STROKE_WIDTH_MIN = 1;
-const STROKE_WIDTH_MAX = 100;
+const STROKE_WIDTH_MAX = 32;
+const BASE_TEXT_FONT_SIZE = 100;
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
+}
+
+function toPercentScale(scale: number): number {
+	return Math.round(scale * 100);
+}
+
+function toScaleFromPercent(percent: number): number {
+	return percent / 100;
+}
+
+const ZOOM_LOG_STEP = 0.1;
+const ZOOM_RULER_TICK_SPACING = 16;
+const ZOOM_DRAG_SENSITIVITY = 0.01;
+const SIGNED_RULER_STEP = 20;
+const SIGNED_RULER_DRAG_SENSITIVITY = 0.8;
+
+function toPositiveValue(value: number, fallback: number): number {
+	if (!Number.isFinite(value)) return fallback;
+	return value > 0 ? value : fallback;
+}
+
+function normalizeStrokeWidth(width: number): number {
+	return clamp(Math.round(width), STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
+}
+
+function getShadowBlur(width: number, soft: boolean): number {
+	const safeWidth = normalizeStrokeWidth(width);
+	return soft
+		? Math.max(4, Math.round(safeWidth * 3.2))
+		: Math.max(2, Math.round(safeWidth * 1.8 + 1));
+}
+
+interface InfiniteScaleRulerProps {
+	value: number;
+	onValueChange: (nextValue: number) => void;
+	ariaLabel: string;
+	resetValue: number;
+	ariaValueNow?: number;
+	className?: string;
+}
+
+function InfiniteScaleRuler({
+	value,
+	onValueChange,
+	ariaLabel,
+	resetValue,
+	ariaValueNow,
+	className,
+}: InfiniteScaleRulerProps) {
+	const dragRef = useRef<{
+		pointerId: number;
+		startX: number;
+		startValue: number;
+	} | null>(null);
+	const safeValue = toPositiveValue(value, resetValue);
+	const offset =
+		((Math.log(safeValue) / ZOOM_LOG_STEP) * ZOOM_RULER_TICK_SPACING) %
+		ZOOM_RULER_TICK_SPACING;
+
+	const updateFromDrag = useCallback(
+		(clientX: number) => {
+			const state = dragRef.current;
+			if (!state) return;
+			const deltaX = clientX - state.startX;
+			onValueChange(
+				toPositiveValue(
+					state.startValue * Math.exp(deltaX * ZOOM_DRAG_SENSITIVITY),
+					resetValue,
+				),
+			);
+		},
+		[onValueChange, resetValue],
+	);
+
+	return (
+		<div
+			className={cn(
+				"relative h-8 w-32 touch-none overflow-hidden rounded-md border bg-muted/30",
+				className,
+			)}
+			role="slider"
+			aria-label={ariaLabel}
+			aria-valuemin={1}
+			aria-valuenow={ariaValueNow ?? Math.round(safeValue * 100)}
+			tabIndex={0}
+			onDoubleClick={() => onValueChange(resetValue)}
+			onPointerDown={(event) => {
+				dragRef.current = {
+					pointerId: event.pointerId,
+					startX: event.clientX,
+					startValue: safeValue,
+				};
+				event.currentTarget.setPointerCapture(event.pointerId);
+			}}
+			onPointerMove={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				updateFromDrag(event.clientX);
+			}}
+			onPointerUp={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				dragRef.current = null;
+				event.currentTarget.releasePointerCapture(event.pointerId);
+			}}
+			onPointerCancel={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				dragRef.current = null;
+				event.currentTarget.releasePointerCapture(event.pointerId);
+			}}
+			onKeyDown={(event) => {
+				if (event.key === "ArrowLeft") {
+					event.preventDefault();
+					onValueChange(safeValue / 1.05);
+				}
+				if (event.key === "ArrowRight") {
+					event.preventDefault();
+					onValueChange(safeValue * 1.05);
+				}
+			}}
+		>
+			<div
+				className="pointer-events-none absolute inset-0"
+				style={{
+					backgroundImage:
+						"repeating-linear-gradient(90deg, hsl(var(--border)) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, transparent 0 15px, hsl(var(--muted-foreground) / 0.45) 15px 16px)",
+					backgroundPositionX: `${offset}px, ${offset}px`,
+				}}
+			/>
+			<div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-primary" />
+		</div>
+	);
+}
+
+interface InfiniteSignedRulerProps {
+	value: number;
+	onValueChange: (nextValue: number) => void;
+	ariaLabel: string;
+	resetValue: number;
+	ariaValueNow?: number;
+	className?: string;
+}
+
+function InfiniteSignedRuler({
+	value,
+	onValueChange,
+	ariaLabel,
+	resetValue,
+	ariaValueNow,
+	className,
+}: InfiniteSignedRulerProps) {
+	const dragRef = useRef<{
+		pointerId: number;
+		startX: number;
+		startValue: number;
+	} | null>(null);
+	const offset =
+		((value / SIGNED_RULER_STEP) * ZOOM_RULER_TICK_SPACING) %
+		ZOOM_RULER_TICK_SPACING;
+
+	const updateFromDrag = useCallback(
+		(clientX: number) => {
+			const state = dragRef.current;
+			if (!state) return;
+			const deltaX = clientX - state.startX;
+			onValueChange(
+				Math.round(state.startValue + deltaX * SIGNED_RULER_DRAG_SENSITIVITY),
+			);
+		},
+		[onValueChange],
+	);
+
+	return (
+		<div
+			className={cn(
+				"relative h-8 w-32 touch-none overflow-hidden rounded-md border bg-muted/30",
+				className,
+			)}
+			role="slider"
+			aria-label={ariaLabel}
+			aria-valuenow={ariaValueNow ?? Math.round(value)}
+			tabIndex={0}
+			onDoubleClick={() => onValueChange(resetValue)}
+			onPointerDown={(event) => {
+				dragRef.current = {
+					pointerId: event.pointerId,
+					startX: event.clientX,
+					startValue: value,
+				};
+				event.currentTarget.setPointerCapture(event.pointerId);
+			}}
+			onPointerMove={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				updateFromDrag(event.clientX);
+			}}
+			onPointerUp={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				dragRef.current = null;
+				event.currentTarget.releasePointerCapture(event.pointerId);
+			}}
+			onPointerCancel={(event) => {
+				if (dragRef.current?.pointerId !== event.pointerId) return;
+				dragRef.current = null;
+				event.currentTarget.releasePointerCapture(event.pointerId);
+			}}
+			onKeyDown={(event) => {
+				if (event.key === "ArrowLeft") {
+					event.preventDefault();
+					onValueChange(value - 1);
+				}
+				if (event.key === "ArrowRight") {
+					event.preventDefault();
+					onValueChange(value + 1);
+				}
+			}}
+		>
+			<div
+				className="pointer-events-none absolute inset-0"
+				style={{
+					backgroundImage:
+						"repeating-linear-gradient(90deg, hsl(var(--border)) 0 1px, transparent 1px 8px), repeating-linear-gradient(90deg, transparent 0 15px, hsl(var(--muted-foreground) / 0.45) 15px 16px)",
+					backgroundPositionX: `${offset}px, ${offset}px`,
+				}}
+			/>
+			<div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-primary" />
+		</div>
+	);
 }
 
 function buildTextShadow(color: string, width: number, soft: boolean): Shadow {
@@ -51,7 +276,7 @@ function buildTextShadow(color: string, width: number, soft: boolean): Shadow {
 		color,
 		offsetX: 0,
 		offsetY: 0,
-		blur: soft ? Math.max(4, Math.round(width * 2.2)) : Math.max(2, width + 1),
+		blur: getShadowBlur(width, soft),
 	});
 }
 
@@ -74,11 +299,7 @@ function createStrokePatch(
 	color: string,
 	width: number,
 ) {
-	const safeWidth = clamp(
-		Math.round(width),
-		STROKE_WIDTH_MIN,
-		STROKE_WIDTH_MAX,
-	);
+	const safeWidth = normalizeStrokeWidth(width);
 	if (!enabled) {
 		return {
 			stroke: null,
@@ -120,6 +341,8 @@ function buildSnapshotKey(snapshot: TextStyleSnapshot): string {
 		snapshot.fill,
 		snapshot.fontFamily,
 		snapshot.fontSize,
+		snapshot.scaleX,
+		snapshot.scaleY,
 		snapshot.fontWeight,
 		snapshot.charSpacing,
 		snapshot.opacity,
@@ -187,6 +410,7 @@ const HISTORY_STORAGE_KEY = "jx3-photo-maker:id-history";
 function App() {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const activeObject = useEditorStore((s) => s.activeObject);
+	const activeObjectRevision = useEditorStore((s) => s.activeObjectRevision);
 	const exportFormat = useEditorStore((s) => s.exportFormat);
 	const setExportFormat = useEditorStore((s) => s.setExportFormat);
 
@@ -216,7 +440,7 @@ function App() {
 	const [textValue, setTextValue] = useState("");
 	const [fillValue, setFillValue] = useState("#000000");
 	const [fontFamilyValue, setFontFamilyValue] = useState(DEFAULT_FONT_FAMILY);
-	const [fontSizeValue, setFontSizeValue] = useState(48);
+	const [textScaleValue, setTextScaleValue] = useState(100);
 	const [fontWeightValue, setFontWeightValue] = useState(700);
 	const [charSpacingValue, setCharSpacingValue] = useState(0);
 	const [opacityValue, setOpacityValue] = useState(1);
@@ -245,13 +469,39 @@ function App() {
 
 	const applyStrokeStyle = useCallback(
 		(enabled: boolean, style: StrokeStyle, color: string, width: number) => {
-			applyToActiveText(createStrokePatch(enabled, style, color, width));
+			const safeWidth = normalizeStrokeWidth(width);
+			applyToActiveText(createStrokePatch(enabled, style, color, safeWidth));
 			useStyleInheritanceStore.getState().setInheritedStyle({
 				strokeEnabled: enabled,
 				strokeStyle: style,
 				strokeColor: color,
-				strokeWidth: width,
+				strokeWidth: safeWidth,
 			});
+		},
+		[applyToActiveText],
+	);
+
+	const applyTextScale = useCallback(
+		(nextValue: number) => {
+			const nextScalePercent = Math.max(
+				1,
+				Math.round(toPositiveValue(nextValue, 100)),
+			);
+			setTextScaleValue(nextScalePercent);
+			applyToActiveText({
+				fontSize: BASE_TEXT_FONT_SIZE,
+				scaleX: toScaleFromPercent(nextScalePercent),
+				scaleY: toScaleFromPercent(nextScalePercent),
+			});
+		},
+		[applyToActiveText],
+	);
+
+	const applyCharSpacing = useCallback(
+		(nextValue: number) => {
+			const normalized = Math.round(nextValue);
+			setCharSpacingValue(normalized);
+			applyToActiveText({ charSpacing: normalized });
 		},
 		[applyToActiveText],
 	);
@@ -266,6 +516,9 @@ function App() {
 		if (!activeText) {
 			return;
 		}
+		if (!Number.isFinite(activeObjectRevision)) {
+			return;
+		}
 
 		const vertical = isTextVertical(activeText);
 		// eslint-disable-next-line react-hooks/set-state-in-effect
@@ -277,7 +530,15 @@ function App() {
 			typeof activeText.fill === "string" ? activeText.fill : "#000000",
 		);
 		setFontFamilyValue(activeText.fontFamily ?? DEFAULT_FONT_FAMILY);
-		setFontSizeValue(activeText.fontSize ?? 48);
+		const effectiveScaleX =
+			((activeText.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
+			(activeText.scaleX ?? 1);
+		const effectiveScaleY =
+			((activeText.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
+			(activeText.scaleY ?? 1);
+		const uniformScale = (effectiveScaleX + effectiveScaleY) / 2;
+		const nextScalePercent = Math.max(1, toPercentScale(uniformScale));
+		setTextScaleValue(nextScalePercent);
 		setFontWeightValue(
 			typeof activeText.fontWeight === "number"
 				? activeText.fontWeight
@@ -300,16 +561,18 @@ function App() {
 		);
 
 		const inferredShadowStrength =
-			shadow instanceof Shadow ? Math.round(shadow.blur / 2) : 4;
+			shadow instanceof Shadow
+				? normalizeStrokeWidth(Math.round(shadow.blur / 2))
+				: 4;
 		setStrokeWidthValue(
 			hasStroke
-				? Math.max(1, Math.round(activeText.strokeWidth ?? 4))
+				? normalizeStrokeWidth(Math.round(activeText.strokeWidth ?? 4))
 				: Math.max(1, inferredShadowStrength),
 		);
 
 		useStyleInheritanceStore.getState().setInheritedStyle({
 			fontFamily: activeText.fontFamily ?? DEFAULT_FONT_FAMILY,
-			fontSize: activeText.fontSize ?? 48,
+			fontSize: BASE_TEXT_FONT_SIZE,
 			fontWeight:
 				typeof activeText.fontWeight === "number"
 					? activeText.fontWeight
@@ -317,10 +580,10 @@ function App() {
 			charSpacing: activeText.charSpacing ?? 0,
 			opacity: activeText.opacity ?? 1,
 			vertical,
-			scaleX: activeText.scaleX ?? 1,
-			scaleY: activeText.scaleY ?? 1,
+			scaleX: toScaleFromPercent(nextScalePercent),
+			scaleY: toScaleFromPercent(nextScalePercent),
 		});
-	}, [activeText]);
+	}, [activeObjectRevision, activeText]);
 
 	useEffect(() => {
 		if (!activeText) return;
@@ -463,25 +726,22 @@ function App() {
 										size="icon-sm"
 										variant="outline"
 										title="缩小"
-										onClick={() => setPreviewZoom(previewZoom - 0.1)}
+										onClick={() => setPreviewZoom(previewZoom / 1.1)}
 									>
 										<ZoomOut className="size-3.5" />
 									</Button>
-									<Slider
-										className="w-24 sm:w-28"
-										value={[previewZoom * 100]}
-										min={MIN_PREVIEW_ZOOM * 100}
-										max={MAX_PREVIEW_ZOOM * 100}
-										step={5}
-										onValueChange={([v]) => {
-											setPreviewZoom(v / 100);
-										}}
+									<InfiniteScaleRuler
+										value={previewZoom}
+										onValueChange={setPreviewZoom}
+										ariaLabel="画布缩放刻度"
+										resetValue={1}
+										ariaValueNow={Math.round(previewZoom * 100)}
 									/>
 									<Button
 										size="icon-sm"
 										variant="outline"
 										title="放大"
-										onClick={() => setPreviewZoom(previewZoom + 0.1)}
+										onClick={() => setPreviewZoom(previewZoom * 1.1)}
 									>
 										<ZoomIn className="size-3.5" />
 									</Button>
@@ -1002,21 +1262,67 @@ function App() {
 									<div className="flex flex-col gap-2">
 										<div className="flex items-center gap-3">
 											<div className="w-8 shrink-0 text-xs text-muted-foreground">
-												字号
+												缩放
 											</div>
-											<Slider
-												className="flex-1"
-												value={[fontSizeValue]}
-												min={10}
-												max={300}
-												step={1}
-												onValueChange={([v]) => {
-													setFontSizeValue(v);
-													applyToActiveText({ fontSize: v });
-												}}
+											<Button
+												size="icon-xs"
+												variant="outline"
+												title="缩小文字"
+												onClick={() => applyTextScale(textScaleValue / 1.05)}
+											>
+												<ZoomOut className="size-3.5" />
+											</Button>
+											<InfiniteScaleRuler
+												value={textScaleValue}
+												onValueChange={applyTextScale}
+												ariaLabel="文字缩放刻度"
+												resetValue={100}
+												ariaValueNow={textScaleValue}
+												className="h-8 flex-1"
 											/>
-											<div className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-												{Math.round(fontSizeValue)}
+											<Button
+												size="icon-xs"
+												variant="outline"
+												title="放大文字"
+												onClick={() => applyTextScale(textScaleValue * 1.05)}
+											>
+												<ZoomIn className="size-3.5" />
+											</Button>
+											<div className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												{textScaleValue}%
+											</div>
+										</div>
+
+										<div className="flex items-center gap-3">
+											<div className="w-8 shrink-0 text-xs text-muted-foreground">
+												字距
+											</div>
+											<Button
+												size="icon-xs"
+												variant="outline"
+												title="减小字距"
+												onClick={() => applyCharSpacing(charSpacingValue - 10)}
+											>
+												<ZoomOut className="size-3.5" />
+											</Button>
+											<InfiniteSignedRuler
+												value={charSpacingValue}
+												onValueChange={applyCharSpacing}
+												ariaLabel="文字字距刻度"
+												resetValue={0}
+												ariaValueNow={charSpacingValue}
+												className="h-8 flex-1"
+											/>
+											<Button
+												size="icon-xs"
+												variant="outline"
+												title="增大字距"
+												onClick={() => applyCharSpacing(charSpacingValue + 10)}
+											>
+												<ZoomIn className="size-3.5" />
+											</Button>
+											<div className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+												{Math.round(charSpacingValue)}
 											</div>
 										</div>
 
@@ -1037,26 +1343,6 @@ function App() {
 											/>
 											<div className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 												{Math.round(fontWeightValue)}
-											</div>
-										</div>
-
-										<div className="flex items-center gap-3">
-											<div className="w-8 shrink-0 text-xs text-muted-foreground">
-												字距
-											</div>
-											<Slider
-												className="flex-1"
-												value={[charSpacingValue]}
-												min={-300}
-												max={1000}
-												step={10}
-												onValueChange={([v]) => {
-													setCharSpacingValue(v);
-													applyToActiveText({ charSpacing: v });
-												}}
-											/>
-											<div className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-												{Math.round(charSpacingValue)}
 											</div>
 										</div>
 
