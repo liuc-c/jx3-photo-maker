@@ -214,7 +214,7 @@ function App() {
 	const activeText = activeObject instanceof IText ? activeObject : null;
 
 	const [textValue, setTextValue] = useState("");
-	const [fillValue, setFillValue] = useState("#ffffff");
+	const [fillValue, setFillValue] = useState("#000000");
 	const [fontFamilyValue, setFontFamilyValue] = useState(DEFAULT_FONT_FAMILY);
 	const [fontSizeValue, setFontSizeValue] = useState(48);
 	const [fontWeightValue, setFontWeightValue] = useState(700);
@@ -274,7 +274,7 @@ function App() {
 		const rawText = activeText.text ?? "";
 		setTextValue(vertical ? fromVerticalText(rawText) : rawText);
 		setFillValue(
-			typeof activeText.fill === "string" ? activeText.fill : "#ffffff",
+			typeof activeText.fill === "string" ? activeText.fill : "#000000",
 		);
 		setFontFamilyValue(activeText.fontFamily ?? DEFAULT_FONT_FAMILY);
 		setFontSizeValue(activeText.fontSize ?? 48);

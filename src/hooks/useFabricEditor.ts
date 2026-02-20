@@ -447,7 +447,7 @@ export function useFabricEditor() {
 		});
 	}
 
-	function addText(text: string, color = "#ffffff", presetKey?: string) {
+	function addText(text: string, color = "#000000", presetKey?: string) {
 		if (!canvas || !image) return;
 
 		const inheritedStyle = useStyleInheritanceStore
@@ -542,7 +542,7 @@ export function useFabricEditor() {
 		const snapshot: TextStyleSnapshot = {
 			text: flatText,
 			vertical,
-			fill: typeof obj.fill === "string" ? obj.fill : "#ffffff",
+			fill: typeof obj.fill === "string" ? obj.fill : "#000000",
 			fontFamily: obj.fontFamily ?? DEFAULT_FONT_FAMILY,
 			fontSize: Math.max(10, Math.round(obj.fontSize ?? 48)),
 			fontWeight:

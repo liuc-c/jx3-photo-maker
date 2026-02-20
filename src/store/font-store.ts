@@ -22,7 +22,7 @@ interface LocalFontQueryWindow extends Window {
 	queryLocalFonts: () => Promise<LocalFontData[]>;
 }
 
-export const DEFAULT_FONT_FAMILY = "字库江湖古风体";
+export const DEFAULT_FONT_FAMILY = "千图小兔体";
 
 const BUILTIN_FONTS: FontEntry[] = [];
 
