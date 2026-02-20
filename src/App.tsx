@@ -37,6 +37,28 @@ import { DEFAULT_FONT_FAMILY } from "@/store/font-store";
 import { useStyleInheritanceStore } from "@/store/style-inheritance-store";
 
 type StrokeStyle = "outline" | "shadow" | "hybrid";
+type BatchFieldKey =
+	| "scale"
+	| "charSpacing"
+	| "fontWeight"
+	| "fontFamily"
+	| "opacity"
+	| "strokeEnabled"
+	| "strokeStyle"
+	| "strokeColor"
+	| "strokeWidth";
+
+interface MixedFieldState {
+	scale: boolean;
+	charSpacing: boolean;
+	fontWeight: boolean;
+	fontFamily: boolean;
+	opacity: boolean;
+	strokeEnabled: boolean;
+	strokeStyle: boolean;
+	strokeColor: boolean;
+	strokeWidth: boolean;
+}
 
 const STROKE_WIDTH_MIN = 1;
 const STROKE_WIDTH_MAX = 32;
@@ -288,6 +310,42 @@ function getStrokeStyleFromText(text: IText): StrokeStyle {
 	return "outline";
 }
 
+function getTextScalePercent(text: IText): number {
+	const effectiveScaleX =
+		((text.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
+		(text.scaleX ?? 1);
+	const effectiveScaleY =
+		((text.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
+		(text.scaleY ?? 1);
+	const uniformScale = (effectiveScaleX + effectiveScaleY) / 2;
+	return Math.max(1, toPercentScale(uniformScale));
+}
+
+function getTextStrokeEnabled(text: IText): boolean {
+	const hasStroke = !!text.stroke && (text.strokeWidth ?? 0) > 0;
+	const hasShadow = !!text.shadow;
+	return hasStroke || hasShadow;
+}
+
+function getTextStrokeColor(text: IText): string {
+	const shadowColor = readShadowColor(text.shadow);
+	return typeof text.stroke === "string"
+		? text.stroke
+		: (shadowColor ?? "#ffffff");
+}
+
+function getTextStrokeWidthValue(text: IText): number {
+	const hasStroke = !!text.stroke && (text.strokeWidth ?? 0) > 0;
+	const shadow = text.shadow;
+	const inferredShadowStrength =
+		shadow instanceof Shadow
+			? normalizeStrokeWidth(Math.round(shadow.blur / 2))
+			: 4;
+	return hasStroke
+		? normalizeStrokeWidth(Math.round(text.strokeWidth ?? 4))
+		: Math.max(1, inferredShadowStrength);
+}
+
 function readShadowColor(shadow: IText["shadow"]): string | null {
 	if (!shadow) return null;
 	return typeof shadow.color === "string" ? shadow.color : null;
@@ -409,6 +467,8 @@ const HISTORY_STORAGE_KEY = "jx3-photo-maker:id-history";
 
 function App() {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const mixedConfirmCacheRef = useRef<Set<BatchFieldKey>>(new Set());
+	const canvas = useEditorStore((s) => s.canvas);
 	const activeObject = useEditorStore((s) => s.activeObject);
 	const activeObjectRevision = useEditorStore((s) => s.activeObjectRevision);
 	const exportFormat = useEditorStore((s) => s.exportFormat);
@@ -429,6 +489,8 @@ function App() {
 		applyToActiveText,
 		setActiveFontFamily,
 		setActiveTextVertical,
+		alignSelectedTexts,
+		distributeSelectedTexts,
 		deleteActiveObject,
 		exportImage,
 	} = useFabricEditor();
@@ -436,6 +498,17 @@ function App() {
 	const { dark, toggle: toggleTheme } = useTheme();
 
 	const activeText = activeObject instanceof IText ? activeObject : null;
+	const selectedTexts = (() => {
+		if (!canvas) return activeText ? [activeText] : [];
+		const selected = canvas
+			.getActiveObjects()
+			.filter((obj): obj is IText => obj instanceof IText);
+		if (selected.length > 0) return selected;
+		return activeText ? [activeText] : [];
+	})();
+	const hasTextSelection = selectedTexts.length > 0;
+	const isBatchMode = selectedTexts.length > 1;
+	const canDistribute = selectedTexts.length > 2;
 
 	const [textValue, setTextValue] = useState("");
 	const [fillValue, setFillValue] = useState("#000000");
@@ -452,7 +525,6 @@ function App() {
 	const [isVerticalValue, setIsVerticalValue] = useState(true);
 	const [presetPopoverOpen, setPresetPopoverOpen] = useState(false);
 	const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
-	const [popoverEpoch, setPopoverEpoch] = useState(0);
 	const [isDesktop, setIsDesktop] = useState(() => {
 		if (typeof window === "undefined") return false;
 		return window.matchMedia("(min-width: 1024px)").matches;
@@ -506,90 +578,145 @@ function App() {
 		[applyToActiveText],
 	);
 
-	const closeAllPopovers = useCallback(() => {
-		setPresetPopoverOpen(false);
-		setHistoryPopoverOpen(false);
-		setPopoverEpoch((v) => v + 1);
-	}, []);
+	const mixedFields: MixedFieldState = (() => {
+		if (!isBatchMode) {
+			return {
+				scale: false,
+				charSpacing: false,
+				fontWeight: false,
+				fontFamily: false,
+				opacity: false,
+				strokeEnabled: false,
+				strokeStyle: false,
+				strokeColor: false,
+				strokeWidth: false,
+			};
+		}
+
+		const [first, ...rest] = selectedTexts;
+		if (!first) {
+			return {
+				scale: false,
+				charSpacing: false,
+				fontWeight: false,
+				fontFamily: false,
+				opacity: false,
+				strokeEnabled: false,
+				strokeStyle: false,
+				strokeColor: false,
+				strokeWidth: false,
+			};
+		}
+
+		const firstScale = getTextScalePercent(first);
+		const firstCharSpacing = first.charSpacing ?? 0;
+		const firstFontWeight =
+			typeof first.fontWeight === "number"
+				? first.fontWeight
+				: Number(first.fontWeight ?? 700);
+		const firstFontFamily = first.fontFamily ?? DEFAULT_FONT_FAMILY;
+		const firstOpacity = first.opacity ?? 1;
+		const firstStrokeEnabled = getTextStrokeEnabled(first);
+		const firstStrokeStyle = getStrokeStyleFromText(first);
+		const firstStrokeColor = getTextStrokeColor(first);
+		const firstStrokeWidth = getTextStrokeWidthValue(first);
+
+		return {
+			scale: rest.some((item) => getTextScalePercent(item) !== firstScale),
+			charSpacing: rest.some(
+				(item) => (item.charSpacing ?? 0) !== firstCharSpacing,
+			),
+			fontWeight: rest.some((item) => {
+				const value =
+					typeof item.fontWeight === "number"
+						? item.fontWeight
+						: Number(item.fontWeight ?? 700);
+				return value !== firstFontWeight;
+			}),
+			fontFamily: rest.some(
+				(item) => (item.fontFamily ?? DEFAULT_FONT_FAMILY) !== firstFontFamily,
+			),
+			opacity: rest.some((item) => (item.opacity ?? 1) !== firstOpacity),
+			strokeEnabled: rest.some(
+				(item) => getTextStrokeEnabled(item) !== firstStrokeEnabled,
+			),
+			strokeStyle: rest.some(
+				(item) => getStrokeStyleFromText(item) !== firstStrokeStyle,
+			),
+			strokeColor: rest.some(
+				(item) => getTextStrokeColor(item) !== firstStrokeColor,
+			),
+			strokeWidth: rest.some(
+				(item) => getTextStrokeWidthValue(item) !== firstStrokeWidth,
+			),
+		};
+	})();
+
+	const ensureMixedFieldConfirmed = useCallback(
+		(field: BatchFieldKey) => {
+			if (!isBatchMode || !mixedFields[field]) return true;
+			if (mixedConfirmCacheRef.current.has(field)) return true;
+
+			const confirmed = window.confirm(
+				"检测到混合值：当前选中的多个文字该属性不一致。确认后将统一覆盖为新值。",
+			);
+			if (confirmed) mixedConfirmCacheRef.current.add(field);
+			return confirmed;
+		},
+		[isBatchMode, mixedFields],
+	);
 
 	useEffect(() => {
-		if (!activeText) {
+		if (!hasTextSelection) {
 			return;
 		}
 		if (!Number.isFinite(activeObjectRevision)) {
 			return;
 		}
 
-		const vertical = isTextVertical(activeText);
+		mixedConfirmCacheRef.current.clear();
+		const primaryText = selectedTexts[0];
+		if (!primaryText) return;
+
+		const vertical = isTextVertical(primaryText);
 		// eslint-disable-next-line react-hooks/set-state-in-effect
 		setIsVerticalValue(vertical);
 
-		const rawText = activeText.text ?? "";
+		const rawText = primaryText.text ?? "";
 		setTextValue(vertical ? fromVerticalText(rawText) : rawText);
 		setFillValue(
-			typeof activeText.fill === "string" ? activeText.fill : "#000000",
+			typeof primaryText.fill === "string" ? primaryText.fill : "#000000",
 		);
-		setFontFamilyValue(activeText.fontFamily ?? DEFAULT_FONT_FAMILY);
-		const effectiveScaleX =
-			((activeText.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
-			(activeText.scaleX ?? 1);
-		const effectiveScaleY =
-			((activeText.fontSize ?? BASE_TEXT_FONT_SIZE) / BASE_TEXT_FONT_SIZE) *
-			(activeText.scaleY ?? 1);
-		const uniformScale = (effectiveScaleX + effectiveScaleY) / 2;
-		const nextScalePercent = Math.max(1, toPercentScale(uniformScale));
+		setFontFamilyValue(primaryText.fontFamily ?? DEFAULT_FONT_FAMILY);
+		const nextScalePercent = getTextScalePercent(primaryText);
 		setTextScaleValue(nextScalePercent);
 		setFontWeightValue(
-			typeof activeText.fontWeight === "number"
-				? activeText.fontWeight
-				: Number(activeText.fontWeight ?? 700),
+			typeof primaryText.fontWeight === "number"
+				? primaryText.fontWeight
+				: Number(primaryText.fontWeight ?? 700),
 		);
-		setCharSpacingValue(activeText.charSpacing ?? 0);
-		setOpacityValue(activeText.opacity ?? 1);
+		setCharSpacingValue(primaryText.charSpacing ?? 0);
+		setOpacityValue(primaryText.opacity ?? 1);
 
-		const hasStroke = !!activeText.stroke && (activeText.strokeWidth ?? 0) > 0;
-		const hasShadow = !!activeText.shadow;
-		setStrokeEnabled(hasStroke || hasShadow);
-		setStrokeStyleValue(getStrokeStyleFromText(activeText));
-
-		const shadow = activeText.shadow;
-		const shadowColor = readShadowColor(shadow);
-		setStrokeColor(
-			typeof activeText.stroke === "string"
-				? activeText.stroke
-				: (shadowColor ?? "#ffffff"),
-		);
-
-		const inferredShadowStrength =
-			shadow instanceof Shadow
-				? normalizeStrokeWidth(Math.round(shadow.blur / 2))
-				: 4;
-		setStrokeWidthValue(
-			hasStroke
-				? normalizeStrokeWidth(Math.round(activeText.strokeWidth ?? 4))
-				: Math.max(1, inferredShadowStrength),
-		);
+		setStrokeEnabled(getTextStrokeEnabled(primaryText));
+		setStrokeStyleValue(getStrokeStyleFromText(primaryText));
+		setStrokeColor(getTextStrokeColor(primaryText));
+		setStrokeWidthValue(getTextStrokeWidthValue(primaryText));
 
 		useStyleInheritanceStore.getState().setInheritedStyle({
-			fontFamily: activeText.fontFamily ?? DEFAULT_FONT_FAMILY,
+			fontFamily: primaryText.fontFamily ?? DEFAULT_FONT_FAMILY,
 			fontSize: BASE_TEXT_FONT_SIZE,
 			fontWeight:
-				typeof activeText.fontWeight === "number"
-					? activeText.fontWeight
-					: Number(activeText.fontWeight ?? 700),
-			charSpacing: activeText.charSpacing ?? 0,
-			opacity: activeText.opacity ?? 1,
+				typeof primaryText.fontWeight === "number"
+					? primaryText.fontWeight
+					: Number(primaryText.fontWeight ?? 700),
+			charSpacing: primaryText.charSpacing ?? 0,
+			opacity: primaryText.opacity ?? 1,
 			vertical,
 			scaleX: toScaleFromPercent(nextScalePercent),
 			scaleY: toScaleFromPercent(nextScalePercent),
 		});
-	}, [activeObjectRevision, activeText]);
-
-	useEffect(() => {
-		if (!activeText) return;
-		// eslint-disable-next-line react-hooks/set-state-in-effect
-		closeAllPopovers();
-	}, [activeText, closeAllPopovers]);
+	}, [activeObjectRevision, hasTextSelection, selectedTexts]);
 
 	useEffect(() => {
 		const media = window.matchMedia("(min-width: 1024px)");
@@ -1188,72 +1315,162 @@ function App() {
 
 						<div className="flex flex-col gap-3">
 							<div className="text-sm font-semibold">属性编辑</div>
-							{!activeText && (
+							{!hasTextSelection && (
 								<div className="text-sm text-muted-foreground">
 									选中文字后在右侧编辑内容/字体/颜色/大小
 								</div>
 							)}
 
-							{activeText && (
+							{hasTextSelection && (
 								<div className="flex flex-col gap-4">
-									<div className="grid gap-2">
-										<div className="text-xs font-medium text-primary">
-											ID 内容
+									{isBatchMode && (
+										<div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+											批量编辑模式：已选中 {selectedTexts.length} 个文字对象
 										</div>
-										<Input
-											className="border-primary bg-primary/10 text-foreground focus-visible:border-primary focus-visible:ring-primary/30"
-											placeholder="输入角色 ID..."
-											value={textValue}
-											onChange={(e) => {
-												setTextValue(e.target.value);
-												applyToActiveText({ text: e.target.value });
-											}}
-										/>
-									</div>
-
-									<div className="flex flex-wrap items-center gap-2">
-										<div className="text-xs text-muted-foreground">排版</div>
-										<div className="flex items-center rounded-md border p-0.5">
-											<Button
-												type="button"
-												size="xs"
-												variant={!isVerticalValue ? "default" : "ghost"}
-												onClick={() => {
-													setIsVerticalValue(false);
-													setActiveTextVertical(false);
-												}}
-											>
-												横排
-											</Button>
-											<Button
-												type="button"
-												size="xs"
-												variant={isVerticalValue ? "default" : "ghost"}
-												onClick={() => {
-													setIsVerticalValue(true);
-													setActiveTextVertical(true);
-												}}
-											>
-												竖排
-											</Button>
-										</div>
-										<div className="ml-auto sm:ml-auto">
-											<ColorPickerPopover
-												key={`fill-color-popover-${popoverEpoch}`}
-												label="颜色"
-												color={fillValue}
-												onChange={(c) => {
-													setFillValue(c);
-													applyToActiveText({ fill: c });
+									)}
+									{!isBatchMode && (
+										<div className="grid gap-2">
+											<div className="text-xs font-medium text-primary">
+												ID 内容
+											</div>
+											<Input
+												className="border-primary bg-primary/10 text-foreground focus-visible:border-primary focus-visible:ring-primary/30"
+												placeholder="输入角色 ID..."
+												value={textValue}
+												onChange={(e) => {
+													setTextValue(e.target.value);
+													applyToActiveText({ text: e.target.value });
 												}}
 											/>
 										</div>
-									</div>
+									)}
+
+									{isBatchMode && (
+										<div className="grid gap-2">
+											<div className="text-xs text-muted-foreground">对齐</div>
+											<div className="grid grid-cols-3 gap-2">
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() => alignSelectedTexts("left")}
+												>
+													左对齐
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() =>
+														alignSelectedTexts("center-horizontal")
+													}
+												>
+													水平居中
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() => alignSelectedTexts("right")}
+												>
+													右对齐
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() => alignSelectedTexts("top")}
+												>
+													顶对齐
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() => alignSelectedTexts("center-vertical")}
+												>
+													垂直居中
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													onClick={() => alignSelectedTexts("bottom")}
+												>
+													底对齐
+												</Button>
+											</div>
+
+											<div className="text-xs text-muted-foreground">
+												等距分布
+											</div>
+											<div className="grid grid-cols-2 gap-2">
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													disabled={!canDistribute}
+													onClick={() => distributeSelectedTexts("horizontal")}
+												>
+													水平等距
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant="outline"
+													disabled={!canDistribute}
+													onClick={() => distributeSelectedTexts("vertical")}
+												>
+													垂直等距
+												</Button>
+											</div>
+										</div>
+									)}
+
+									{!isBatchMode && (
+										<div className="flex flex-wrap items-center gap-2">
+											<div className="text-xs text-muted-foreground">排版</div>
+											<div className="flex items-center rounded-md border p-0.5">
+												<Button
+													type="button"
+													size="xs"
+													variant={!isVerticalValue ? "default" : "ghost"}
+													onClick={() => {
+														setIsVerticalValue(false);
+														setActiveTextVertical(false);
+													}}
+												>
+													横排
+												</Button>
+												<Button
+													type="button"
+													size="xs"
+													variant={isVerticalValue ? "default" : "ghost"}
+													onClick={() => {
+														setIsVerticalValue(true);
+														setActiveTextVertical(true);
+													}}
+												>
+													竖排
+												</Button>
+											</div>
+											<div className="ml-auto sm:ml-auto">
+												<ColorPickerPopover
+													label="颜色"
+													color={fillValue}
+													onChange={(c) => {
+														setFillValue(c);
+														applyToActiveText({ fill: c });
+													}}
+												/>
+											</div>
+										</div>
+									)}
 
 									<FontSelector
-										key={`font-selector-${popoverEpoch}`}
 										value={fontFamilyValue}
 										onChange={(v) => {
+											if (!ensureMixedFieldConfirmed("fontFamily")) return;
 											setFontFamilyValue(v);
 											void setActiveFontFamily(v);
 										}}
@@ -1261,20 +1478,26 @@ function App() {
 
 									<div className="flex flex-col gap-2">
 										<div className="flex items-center gap-3">
-											<div className="w-8 shrink-0 text-xs text-muted-foreground">
-												缩放
+											<div className="w-16 shrink-0 text-xs text-muted-foreground">
+												缩放{isBatchMode && mixedFields.scale ? "（混合）" : ""}
 											</div>
 											<Button
 												size="icon-xs"
 												variant="outline"
 												title="缩小文字"
-												onClick={() => applyTextScale(textScaleValue / 1.05)}
+												onClick={() => {
+													if (!ensureMixedFieldConfirmed("scale")) return;
+													applyTextScale(textScaleValue / 1.05);
+												}}
 											>
 												<ZoomOut className="size-3.5" />
 											</Button>
 											<InfiniteScaleRuler
 												value={textScaleValue}
-												onValueChange={applyTextScale}
+												onValueChange={(value) => {
+													if (!ensureMixedFieldConfirmed("scale")) return;
+													applyTextScale(value);
+												}}
 												ariaLabel="文字缩放刻度"
 												resetValue={100}
 												ariaValueNow={textScaleValue}
@@ -1284,7 +1507,10 @@ function App() {
 												size="icon-xs"
 												variant="outline"
 												title="放大文字"
-												onClick={() => applyTextScale(textScaleValue * 1.05)}
+												onClick={() => {
+													if (!ensureMixedFieldConfirmed("scale")) return;
+													applyTextScale(textScaleValue * 1.05);
+												}}
 											>
 												<ZoomIn className="size-3.5" />
 											</Button>
@@ -1294,20 +1520,29 @@ function App() {
 										</div>
 
 										<div className="flex items-center gap-3">
-											<div className="w-8 shrink-0 text-xs text-muted-foreground">
+											<div className="w-16 shrink-0 text-xs text-muted-foreground">
 												字距
+												{isBatchMode && mixedFields.charSpacing
+													? "（混合）"
+													: ""}
 											</div>
 											<Button
 												size="icon-xs"
 												variant="outline"
 												title="减小字距"
-												onClick={() => applyCharSpacing(charSpacingValue - 10)}
+												onClick={() => {
+													if (!ensureMixedFieldConfirmed("charSpacing")) return;
+													applyCharSpacing(charSpacingValue - 10);
+												}}
 											>
 												<ZoomOut className="size-3.5" />
 											</Button>
 											<InfiniteSignedRuler
 												value={charSpacingValue}
-												onValueChange={applyCharSpacing}
+												onValueChange={(value) => {
+													if (!ensureMixedFieldConfirmed("charSpacing")) return;
+													applyCharSpacing(value);
+												}}
 												ariaLabel="文字字距刻度"
 												resetValue={0}
 												ariaValueNow={charSpacingValue}
@@ -1317,7 +1552,10 @@ function App() {
 												size="icon-xs"
 												variant="outline"
 												title="增大字距"
-												onClick={() => applyCharSpacing(charSpacingValue + 10)}
+												onClick={() => {
+													if (!ensureMixedFieldConfirmed("charSpacing")) return;
+													applyCharSpacing(charSpacingValue + 10);
+												}}
 											>
 												<ZoomIn className="size-3.5" />
 											</Button>
@@ -1327,8 +1565,11 @@ function App() {
 										</div>
 
 										<div className="flex items-center gap-3">
-											<div className="w-8 shrink-0 text-xs text-muted-foreground">
+											<div className="w-16 shrink-0 text-xs text-muted-foreground">
 												粗细
+												{isBatchMode && mixedFields.fontWeight
+													? "（混合）"
+													: ""}
 											</div>
 											<Slider
 												className="flex-1"
@@ -1337,6 +1578,7 @@ function App() {
 												max={900}
 												step={100}
 												onValueChange={([v]) => {
+													if (!ensureMixedFieldConfirmed("fontWeight")) return;
 													setFontWeightValue(v);
 													applyToActiveText({ fontWeight: v });
 												}}
@@ -1347,8 +1589,9 @@ function App() {
 										</div>
 
 										<div className="flex items-center gap-3">
-											<div className="w-8 shrink-0 text-xs text-muted-foreground">
+											<div className="w-16 shrink-0 text-xs text-muted-foreground">
 												透明
+												{isBatchMode && mixedFields.opacity ? "（混合）" : ""}
 											</div>
 											<Slider
 												className="flex-1"
@@ -1357,6 +1600,7 @@ function App() {
 												max={100}
 												step={1}
 												onValueChange={([v]) => {
+													if (!ensureMixedFieldConfirmed("opacity")) return;
 													setOpacityValue(v / 100);
 													applyToActiveText({ opacity: v / 100 });
 												}}
@@ -1374,11 +1618,16 @@ function App() {
 												className="text-xs font-normal text-muted-foreground"
 											>
 												描边效果
+												{isBatchMode && mixedFields.strokeEnabled
+													? "（混合）"
+													: ""}
 											</Label>
 											<Switch
 												id="stroke-toggle"
 												checked={strokeEnabled}
 												onCheckedChange={(checked) => {
+													if (!ensureMixedFieldConfirmed("strokeEnabled"))
+														return;
 													setStrokeEnabled(checked);
 													applyStrokeStyle(
 														checked,
@@ -1406,6 +1655,8 @@ function App() {
 																	: "ghost"
 															}
 															onClick={() => {
+																if (!ensureMixedFieldConfirmed("strokeStyle"))
+																	return;
 																setStrokeStyleValue("outline");
 																applyStrokeStyle(
 																	true,
@@ -1427,6 +1678,8 @@ function App() {
 																	: "ghost"
 															}
 															onClick={() => {
+																if (!ensureMixedFieldConfirmed("strokeStyle"))
+																	return;
 																setStrokeStyleValue("shadow");
 																applyStrokeStyle(
 																	true,
@@ -1448,6 +1701,8 @@ function App() {
 																	: "ghost"
 															}
 															onClick={() => {
+																if (!ensureMixedFieldConfirmed("strokeStyle"))
+																	return;
 																setStrokeStyleValue("hybrid");
 																applyStrokeStyle(
 																	true,
@@ -1463,11 +1718,12 @@ function App() {
 												</div>
 
 												<ColorPickerPopover
-													key={`stroke-color-popover-${popoverEpoch}`}
 													label="描边颜色"
 													color={strokeColor}
 													showSchoolPresets={false}
 													onChange={(c) => {
+														if (!ensureMixedFieldConfirmed("strokeColor"))
+															return;
 														setStrokeColor(c);
 														applyStrokeStyle(
 															true,
@@ -1481,6 +1737,9 @@ function App() {
 												<div className="flex items-center gap-3">
 													<div className="shrink-0 text-xs text-muted-foreground">
 														{strokeWidthLabel}
+														{isBatchMode && mixedFields.strokeWidth
+															? "（混合）"
+															: ""}
 													</div>
 													<Slider
 														value={[strokeWidthValue]}
@@ -1488,6 +1747,8 @@ function App() {
 														max={STROKE_WIDTH_MAX}
 														step={1}
 														onValueChange={([v]) => {
+															if (!ensureMixedFieldConfirmed("strokeWidth"))
+																return;
 															setStrokeWidthValue(v);
 															applyStrokeStyle(
 																true,

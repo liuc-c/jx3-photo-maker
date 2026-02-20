@@ -670,6 +670,35 @@ export function useFabricEditor() {
 		canvas.requestRenderAll();
 	}
 
+	function getSelectedEditableTexts(): IText[] {
+		if (!canvas) return [];
+		const activeObjects = canvas.getActiveObjects().filter(isEditableText);
+		if (activeObjects.length > 0) return activeObjects;
+
+		const activeObject = canvas.getActiveObject() ?? null;
+		return isEditableText(activeObject) ? [activeObject] : [];
+	}
+
+	function getBoundingRectEdges(obj: IText) {
+		const rect = obj.getBoundingRect();
+		return {
+			left: rect.left,
+			top: rect.top,
+			right: rect.left + rect.width,
+			bottom: rect.top + rect.height,
+			width: rect.width,
+			height: rect.height,
+		};
+	}
+
+	function refreshCanvasSelection() {
+		if (!canvas) return;
+		const activeObject = canvas.getActiveObject();
+		if (activeObject) activeObject.setCoords();
+		canvas.requestRenderAll();
+		bumpActiveObjectRevision();
+	}
+
 	type ActiveTextPatch = Partial<
 		Pick<
 			IText,
@@ -695,33 +724,39 @@ export function useFabricEditor() {
 
 	function applyToActiveText(patch: ActiveTextPatch) {
 		if (!canvas) return;
-		const obj = canvas.getActiveObject() ?? null;
-		if (!isEditableText(obj)) return;
-		const isVertical = verticalMap.get(obj) ?? false;
+		const selectedTexts = getSelectedEditableTexts();
+		if (!selectedTexts.length) return;
 
-		if (patch.text !== undefined && isVertical) {
-			patch = { ...patch, text: toVerticalText(patch.text) };
-		}
+		for (const text of selectedTexts) {
+			let nextPatch: ActiveTextPatch = { ...patch };
+			const isVertical = verticalMap.get(text) ?? false;
 
-		if (patch.charSpacing !== undefined && isVertical) {
-			patch = {
-				...patch,
-				lineHeight: getVerticalLineHeight(patch.charSpacing),
-			};
-		}
-
-		if (patch.fill !== undefined && typeof patch.fill === "string") {
-			const matchedPreset = JX3_SCHOOL_PRESETS.find(
-				(p) => p.color.toLowerCase() === patch.fill!.toString().toLowerCase(),
-			);
-			if (matchedPreset) {
-				presetKeyMap.set(obj, matchedPreset.key);
+			if (nextPatch.text !== undefined && isVertical) {
+				nextPatch = { ...nextPatch, text: toVerticalText(nextPatch.text) };
 			}
+
+			if (nextPatch.charSpacing !== undefined && isVertical) {
+				nextPatch = {
+					...nextPatch,
+					lineHeight: getVerticalLineHeight(nextPatch.charSpacing),
+				};
+			}
+
+			const fillValue = nextPatch.fill;
+			if (typeof fillValue === "string") {
+				const matchedPreset = JX3_SCHOOL_PRESETS.find(
+					(p) => p.color.toLowerCase() === fillValue.toLowerCase(),
+				);
+				if (matchedPreset) {
+					presetKeyMap.set(text, matchedPreset.key);
+				}
+			}
+
+			text.set(nextPatch);
+			text.setCoords();
 		}
 
-		obj.set(patch);
-		obj.setCoords();
-		canvas.requestRenderAll();
+		refreshCanvasSelection();
 
 		const { setInheritedStyle } = useStyleInheritanceStore.getState();
 		if (patch.fontFamily !== undefined) {
@@ -750,6 +785,132 @@ export function useFabricEditor() {
 		if (patch.scaleY !== undefined) {
 			setInheritedStyle({ scaleY: patch.scaleY });
 		}
+	}
+
+	function alignSelectedTexts(
+		alignment:
+			| "left"
+			| "center-horizontal"
+			| "right"
+			| "top"
+			| "center-vertical"
+			| "bottom",
+	): boolean {
+		if (!canvas) return false;
+		const selectedTexts = getSelectedEditableTexts();
+		if (selectedTexts.length < 2) return false;
+
+		const rects = selectedTexts.map((obj) => ({
+			obj,
+			edges: getBoundingRectEdges(obj),
+		}));
+
+		const selectionLeft = Math.min(...rects.map((entry) => entry.edges.left));
+		const selectionTop = Math.min(...rects.map((entry) => entry.edges.top));
+		const selectionRight = Math.max(...rects.map((entry) => entry.edges.right));
+		const selectionBottom = Math.max(
+			...rects.map((entry) => entry.edges.bottom),
+		);
+		const selectionCenterX = (selectionLeft + selectionRight) / 2;
+		const selectionCenterY = (selectionTop + selectionBottom) / 2;
+
+		for (const { obj, edges } of rects) {
+			let deltaX = 0;
+			let deltaY = 0;
+
+			switch (alignment) {
+				case "left":
+					deltaX = selectionLeft - edges.left;
+					break;
+				case "center-horizontal":
+					deltaX = selectionCenterX - (edges.left + edges.width / 2);
+					break;
+				case "right":
+					deltaX = selectionRight - edges.right;
+					break;
+				case "top":
+					deltaY = selectionTop - edges.top;
+					break;
+				case "center-vertical":
+					deltaY = selectionCenterY - (edges.top + edges.height / 2);
+					break;
+				case "bottom":
+					deltaY = selectionBottom - edges.bottom;
+					break;
+			}
+
+			obj.set({
+				left: (obj.left ?? 0) + deltaX,
+				top: (obj.top ?? 0) + deltaY,
+			});
+			obj.setCoords();
+		}
+
+		refreshCanvasSelection();
+		return true;
+	}
+
+	function distributeSelectedTexts(
+		direction: "horizontal" | "vertical",
+	): boolean {
+		if (!canvas) return false;
+		const selectedTexts = getSelectedEditableTexts();
+		if (selectedTexts.length < 3) return false;
+
+		if (direction === "horizontal") {
+			const entries = selectedTexts
+				.map((obj) => ({ obj, edges: getBoundingRectEdges(obj) }))
+				.sort((a, b) => a.edges.left - b.edges.left);
+
+			const first = entries[0];
+			const last = entries[entries.length - 1];
+			if (!first || !last) return false;
+
+			const totalWidth = entries.reduce(
+				(sum, entry) => sum + entry.edges.width,
+				0,
+			);
+			const span = last.edges.right - first.edges.left;
+			const gap = (span - totalWidth) / (entries.length - 1);
+
+			let currentLeft = first.edges.right + gap;
+			for (let i = 1; i < entries.length - 1; i += 1) {
+				const entry = entries[i];
+				if (!entry) continue;
+				const deltaX = currentLeft - entry.edges.left;
+				entry.obj.set({ left: (entry.obj.left ?? 0) + deltaX });
+				entry.obj.setCoords();
+				currentLeft += entry.edges.width + gap;
+			}
+		} else {
+			const entries = selectedTexts
+				.map((obj) => ({ obj, edges: getBoundingRectEdges(obj) }))
+				.sort((a, b) => a.edges.top - b.edges.top);
+
+			const first = entries[0];
+			const last = entries[entries.length - 1];
+			if (!first || !last) return false;
+
+			const totalHeight = entries.reduce(
+				(sum, entry) => sum + entry.edges.height,
+				0,
+			);
+			const span = last.edges.bottom - first.edges.top;
+			const gap = (span - totalHeight) / (entries.length - 1);
+
+			let currentTop = first.edges.bottom + gap;
+			for (let i = 1; i < entries.length - 1; i += 1) {
+				const entry = entries[i];
+				if (!entry) continue;
+				const deltaY = currentTop - entry.edges.top;
+				entry.obj.set({ top: (entry.obj.top ?? 0) + deltaY });
+				entry.obj.setCoords();
+				currentTop += entry.edges.height + gap;
+			}
+		}
+
+		refreshCanvasSelection();
+		return true;
 	}
 
 	function setActiveTextVertical(vertical: boolean) {
@@ -870,6 +1031,8 @@ export function useFabricEditor() {
 		applyToActiveText,
 		setActiveFontFamily,
 		setActiveTextVertical,
+		alignSelectedTexts,
+		distributeSelectedTexts,
 		deleteActiveObject,
 		exportImage,
 	};
