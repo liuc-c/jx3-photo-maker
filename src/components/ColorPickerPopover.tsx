@@ -25,13 +25,13 @@ export function ColorPickerPopover({
 			<PopoverTrigger asChild>
 				<button
 					type="button"
-					className="h-6 w-6 shrink-0 rounded border"
+					className="h-9 w-9 shrink-0 rounded border"
 					style={{ backgroundColor: color }}
 				/>
 			</PopoverTrigger>
 			<PopoverContent
-				className="w-auto p-3"
-				side="left"
+				className="w-[calc(100vw-1rem)] max-w-[340px] p-3"
+				side="bottom"
 				align="start"
 				sideOffset={8}
 			>
@@ -42,13 +42,13 @@ export function ColorPickerPopover({
 						<div className="text-xs font-medium text-muted-foreground">
 							常用颜色
 						</div>
-						<div className="flex flex-wrap gap-1">
+						<div className="flex flex-wrap gap-1.5">
 							{COMMON_COLORS.map((c) => (
 								<button
 									key={c.color}
 									type="button"
 									title={c.label}
-									className={`h-5 w-5 rounded-sm border transition-transform hover:scale-110 ${
+									className={`h-8 w-8 rounded-sm border transition-transform hover:scale-110 ${
 										color.toLowerCase() === c.color.toLowerCase()
 											? "ring-2 ring-ring ring-offset-1"
 											: ""
@@ -65,13 +65,13 @@ export function ColorPickerPopover({
 							<div className="text-xs font-medium text-muted-foreground">
 								门派颜色
 							</div>
-							<div className="grid grid-cols-7 gap-1">
+							<div className="grid grid-cols-5 gap-1.5 sm:grid-cols-7 sm:gap-1">
 								{JX3_SCHOOL_PRESETS.map((f) => (
 									<button
 										key={f.color}
 										type="button"
 										title={f.label}
-										className={`flex h-5 w-5 items-center justify-center rounded-sm border transition-transform hover:scale-110 ${
+										className={`flex h-8 w-8 items-center justify-center rounded-sm border transition-transform hover:scale-110 ${
 											color.toLowerCase() === f.color.toLowerCase()
 												? "ring-2 ring-ring ring-offset-1"
 												: ""
@@ -82,7 +82,7 @@ export function ColorPickerPopover({
 										<img
 											src={f.icon}
 											alt={f.label}
-											className="size-3.5"
+											className="size-5"
 											draggable={false}
 										/>
 									</button>
@@ -94,7 +94,7 @@ export function ColorPickerPopover({
 					<Input
 						value={color}
 						onChange={(e) => onChange(e.target.value)}
-						className="h-7 font-mono text-xs"
+						className="h-9 font-mono text-xs"
 						placeholder="#000000"
 					/>
 				</div>

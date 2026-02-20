@@ -1,6 +1,5 @@
 import { IText, Shadow } from "fabric";
 import {
-	ChevronDown,
 	Download,
 	Hand,
 	History,
@@ -227,6 +226,13 @@ function App() {
 	const [strokeColor, setStrokeColor] = useState("#ffffff");
 	const [strokeWidthValue, setStrokeWidthValue] = useState(4);
 	const [isVerticalValue, setIsVerticalValue] = useState(true);
+	const [presetPopoverOpen, setPresetPopoverOpen] = useState(false);
+	const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
+	const [popoverEpoch, setPopoverEpoch] = useState(0);
+	const [isDesktop, setIsDesktop] = useState(() => {
+		if (typeof window === "undefined") return false;
+		return window.matchMedia("(min-width: 1024px)").matches;
+	});
 	const [idHistory, setIdHistory] = useState<TextStyleSnapshot[]>(() => {
 		try {
 			const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
@@ -249,6 +255,12 @@ function App() {
 		},
 		[applyToActiveText],
 	);
+
+	const closeAllPopovers = useCallback(() => {
+		setPresetPopoverOpen(false);
+		setHistoryPopoverOpen(false);
+		setPopoverEpoch((v) => v + 1);
+	}, []);
 
 	useEffect(() => {
 		if (!activeText) {
@@ -310,6 +322,20 @@ function App() {
 		});
 	}, [activeText]);
 
+	useEffect(() => {
+		if (!activeText) return;
+		// eslint-disable-next-line react-hooks/set-state-in-effect
+		closeAllPopovers();
+	}, [activeText, closeAllPopovers]);
+
+	useEffect(() => {
+		const media = window.matchMedia("(min-width: 1024px)");
+		const onChange = () => setIsDesktop(media.matches);
+		onChange();
+		media.addEventListener("change", onChange);
+		return () => media.removeEventListener("change", onChange);
+	}, []);
+
 	function openFilePicker() {
 		fileInputRef.current?.click();
 	}
@@ -352,11 +378,11 @@ function App() {
 
 	return (
 		<div className="h-svh w-full overflow-hidden bg-background text-foreground">
-			<div className="flex h-full min-h-0">
+			<div className="flex h-full min-h-0 flex-col lg:flex-row">
 				<div className="relative min-h-0 min-w-0 flex-1">
 					<main
 						ref={containerRef}
-						className="h-full overflow-auto bg-muted/20 p-4"
+						className="h-full overflow-auto bg-muted/20 p-2 sm:p-4"
 						aria-label="图片上传与编辑区域"
 						onDragOver={(e) => e.preventDefault()}
 						onDrop={async (e) => {
@@ -367,7 +393,7 @@ function App() {
 					>
 						<div className="flex min-h-full min-w-full">
 							{!image && (
-								<div className="m-auto flex min-h-[240px] w-[min(720px,80vw)] shrink-0 flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-background/80 p-6 text-center">
+								<div className="m-auto flex min-h-[220px] w-full max-w-[720px] shrink-0 flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-background/80 p-4 text-center sm:p-6">
 									<div className="text-sm text-muted-foreground">
 										拖拽上传剑网三截图，或点击选择文件（纯浏览器本地处理）
 									</div>
@@ -397,10 +423,29 @@ function App() {
 						</div>
 					</main>
 
+					{!isDesktop && (
+						<div className="pointer-events-none absolute right-2 top-2 z-20">
+							<Button
+								className="pointer-events-auto bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65"
+								size="icon-sm"
+								variant="outline"
+								onClick={toggleTheme}
+								aria-label="切换主题"
+								title="切换主题"
+							>
+								{dark ? (
+									<Sun className="size-4" />
+								) : (
+									<Moon className="size-4" />
+								)}
+							</Button>
+						</div>
+					)}
+
 					{image && (
-						<div className="pointer-events-none absolute bottom-4 left-4 z-20">
+						<div className="pointer-events-none absolute bottom-2 left-1/2 z-20 w-[calc(100%-1rem)] -translate-x-1/2 lg:bottom-4 lg:left-4 lg:w-auto lg:translate-x-0">
 							<div className="pointer-events-auto flex flex-col gap-2 rounded-md border bg-background/90 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70">
-								<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+								<div className="hidden items-center gap-2 text-[11px] text-muted-foreground lg:flex">
 									<Hand className="size-3.5" />
 									<span>空格+拖拽 / 中键拖拽查看</span>
 								</div>
@@ -423,7 +468,7 @@ function App() {
 										<ZoomOut className="size-3.5" />
 									</Button>
 									<Slider
-										className="w-28"
+										className="w-24 sm:w-28"
 										value={[previewZoom * 100]}
 										min={MIN_PREVIEW_ZOOM * 100}
 										max={MAX_PREVIEW_ZOOM * 100}
@@ -440,7 +485,7 @@ function App() {
 									>
 										<ZoomIn className="size-3.5" />
 									</Button>
-									<div className="min-w-[56px] text-right text-xs tabular-nums text-muted-foreground">
+									<div className="min-w-[48px] text-right text-xs tabular-nums text-muted-foreground sm:min-w-[56px]">
 										{Math.round(previewZoom * 100)}%
 									</div>
 								</div>
@@ -449,210 +494,434 @@ function App() {
 					)}
 				</div>
 
-				<aside className="h-full min-h-0 w-[360px] shrink-0 overflow-y-auto border-l bg-background p-4">
-					<div className="flex flex-col gap-6">
-						<div className="flex items-center justify-between">
-							<div className="text-sm font-semibold">工具</div>
-							<div className="flex items-center gap-1.5">
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={openFilePicker}
-									aria-label="导入图片"
-									title="导入图片"
-								>
-									<ImagePlus className="size-4" />
-									选择图片
-								</Button>
-								<Button
-									size="icon-sm"
-									variant="ghost"
-									onClick={toggleTheme}
-									aria-label="切换主题"
-								>
-									{dark ? (
-										<Sun className="size-4" />
-									) : (
-										<Moon className="size-4" />
-									)}
-								</Button>
-							</div>
-						</div>
-						{image && (
-							<div className="text-xs text-muted-foreground">
-								原图分辨率：{image.width}×{image.height}
-							</div>
-						)}
-
-						<div className="flex gap-2">
-							<Button
-								className="flex-1"
-								disabled={!image}
-								onClick={() => addText("请输入")}
-							>
-								<Plus className="size-4" />
-								添加文字
-							</Button>
-							<div className="flex rounded-md border p-0.5">
-								<Button
-									type="button"
-									size="xs"
-									variant={exportFormat === "png" ? "default" : "ghost"}
-									onClick={() => setExportFormat("png")}
-									title="导出 PNG"
-								>
-									PNG
-								</Button>
-								<Button
-									type="button"
-									size="xs"
-									variant={exportFormat === "jpeg" ? "default" : "ghost"}
-									onClick={() => setExportFormat("jpeg")}
-									title="导出 JPG"
-								>
-									JPG
-								</Button>
-							</div>
-							<Button
-								variant="outline"
-								disabled={!image}
-								onClick={handleExport}
-							>
-								<Download className="size-4" />
-								导出
-							</Button>
-						</div>
-
-						<div className="flex gap-2">
-							<Popover>
-								<PopoverTrigger asChild>
-									<Button
-										variant="outline"
-										className="flex-1 justify-start gap-2"
-										disabled={!image}
-									>
-										<Palette className="size-4" />
-										门派预设
-										<ChevronDown className="ml-auto size-3.5 opacity-50" />
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent
-									side="bottom"
-									align="start"
-									className="w-auto p-3"
-								>
-									<div className="mb-2 text-xs font-medium text-muted-foreground">
-										点击门派图标快速添加预设文字
-									</div>
-									<div className="grid grid-cols-7 gap-1.5">
-										{presets.map((p) => (
-											<button
-												key={p.key}
-												type="button"
-												onClick={() => addPreset(p.key)}
-												className="flex items-center justify-center rounded-md border p-1.5 transition hover:scale-105 hover:border-primary/60"
-												style={{ borderColor: p.color }}
-												title={p.label}
+				<aside className="min-h-0 h-[44svh] w-full shrink-0 overflow-y-auto border-t bg-background p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:h-[50svh] sm:p-4 lg:h-full lg:w-[360px] lg:border-t-0 lg:border-l lg:p-4">
+					<div className="flex flex-col gap-4 sm:gap-6">
+						<div className="flex flex-col gap-4 sm:gap-6">
+							{isDesktop && (
+								<>
+									<div className="flex items-center justify-between">
+										<div className="text-sm font-semibold">工具</div>
+										<div className="flex items-center gap-2">
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={openFilePicker}
+												aria-label="导入图片"
+												title="导入图片"
 											>
-												<img
-													src={p.icon}
-													alt={p.label}
-													className="size-6"
-													draggable={false}
-												/>
-											</button>
-										))}
+												<ImagePlus className="size-4" />
+												选择图片
+											</Button>
+											<Button
+												size="icon-sm"
+												variant="ghost"
+												onClick={toggleTheme}
+												aria-label="切换主题"
+											>
+												{dark ? (
+													<Sun className="size-4" />
+												) : (
+													<Moon className="size-4" />
+												)}
+											</Button>
+										</div>
 									</div>
-								</PopoverContent>
-							</Popover>
+									{image && (
+										<div className="text-xs text-muted-foreground">
+											原图分辨率：{image.width}×{image.height}
+										</div>
+									)}
+								</>
+							)}
 
-							<Popover>
-								<PopoverTrigger asChild>
-									<Button
-										variant="outline"
-										className="flex-1 justify-start gap-2"
-										disabled={!image}
-									>
-										<History className="size-4" />
-										历史
-										{idHistory.length > 0 && (
-											<span className="ml-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] leading-none text-primary">
-												{idHistory.length}
-											</span>
-										)}
-										<ChevronDown className="ml-auto size-3.5 opacity-50" />
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent
-									side="bottom"
-									align="end"
-									className="w-[320px] p-3"
-								>
-									<div className="mb-2 text-xs text-muted-foreground">
-										导出时自动记录当前图片的 ID 样式，点击可一键复用
-									</div>
-									{idHistory.length === 0 && (
-										<div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-											暂无历史记录，先导出一次即可生成
-										</div>
-									)}
-									{idHistory.length > 0 && (
-										<div className="grid grid-cols-2 gap-1.5 max-h-[300px] overflow-y-auto">
-											{idHistory.map((item) => {
-												const key = buildSnapshotKey(item);
-												return (
-													<div
-														key={key}
-														className="group relative flex min-w-0 items-center gap-1 rounded-md border bg-muted/25 text-sm transition hover:border-primary/60 hover:bg-primary/5"
-													>
+							{!isDesktop && (
+								<div className="rounded-xl border bg-muted/20 p-1.5">
+									<div className="flex flex-wrap items-center gap-1.5">
+										<Button
+											size="icon-xs"
+											disabled={!image}
+											onClick={() => addText("请输入")}
+											title="添加文字"
+											aria-label="添加文字"
+										>
+											<Plus className="size-3.5" />
+										</Button>
+
+										<Popover
+											open={presetPopoverOpen}
+											onOpenChange={(open) => {
+												setPresetPopoverOpen(open);
+												if (open) setHistoryPopoverOpen(false);
+											}}
+										>
+											<PopoverTrigger asChild>
+												<Button
+													variant="outline"
+													size="icon-xs"
+													disabled={!image}
+													title="门派预设"
+													aria-label="门派预设"
+												>
+													<Palette className="size-3.5" />
+												</Button>
+											</PopoverTrigger>
+											<PopoverContent
+												side="bottom"
+												align="start"
+												className="w-[calc(100vw-1rem)] max-w-[360px] p-3 data-[state=open]:animate-none data-[state=closed]:animate-none"
+											>
+												<div className="mb-2 text-xs font-medium text-muted-foreground">
+													点击门派图标快速添加预设文字
+												</div>
+												<div className="grid grid-cols-4 gap-2 sm:grid-cols-7 sm:gap-1.5">
+													{presets.map((p) => (
 														<button
+															key={p.key}
 															type="button"
-															onClick={() => addTextFromSnapshot(item)}
-															className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
-														>
-															{item.presetKey &&
-																(() => {
-																	const preset = presets.find(
-																		(p) => p.key === item.presetKey,
-																	);
-																	return preset ? (
-																		<img
-																			src={preset.icon}
-																			alt={preset.label}
-																			className="size-4 shrink-0"
-																			draggable={false}
-																		/>
-																	) : null;
-																})()}
-															<span
-																className="truncate"
-																style={{
-																	color: item.fill,
-																	fontFamily: item.fontFamily,
-																	fontWeight: item.fontWeight,
-																}}
-															>
-																{item.text || "[空]"}
-															</span>
-														</button>
-														<button
-															type="button"
-															onClick={(e) => {
-																e.stopPropagation();
-																removeHistoryItem(key);
+															onClick={() => {
+																addPreset(p.key);
 															}}
-															className="shrink-0 p-1 text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100"
-															title="删除"
+															className="flex min-h-10 items-center justify-center rounded-md border p-1.5 transition hover:scale-105 hover:border-primary/60"
+															style={{ borderColor: p.color }}
+															title={p.label}
 														>
-															<X className="size-3" />
+															<img
+																src={p.icon}
+																alt={p.label}
+																className="size-7"
+																draggable={false}
+															/>
 														</button>
+													))}
+												</div>
+											</PopoverContent>
+										</Popover>
+
+										<Popover
+											open={historyPopoverOpen}
+											onOpenChange={(open) => {
+												setHistoryPopoverOpen(open);
+												if (open) setPresetPopoverOpen(false);
+											}}
+										>
+											<PopoverTrigger asChild>
+												<Button
+													variant="outline"
+													size="icon-xs"
+													className="relative"
+													disabled={!image}
+													title="历史"
+													aria-label="历史"
+												>
+													<History className="size-3.5" />
+													{idHistory.length > 0 && (
+														<span className="absolute -right-1 -top-1 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground">
+															{idHistory.length}
+														</span>
+													)}
+												</Button>
+											</PopoverTrigger>
+											<PopoverContent
+												side="bottom"
+												align="end"
+												className="w-[calc(100vw-1rem)] max-w-[360px] p-3 data-[state=open]:animate-none data-[state=closed]:animate-none"
+											>
+												<div className="mb-2 text-xs text-muted-foreground">
+													导出时自动记录当前图片的 ID 样式，点击可一键复用
+												</div>
+												{idHistory.length === 0 && (
+													<div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+														暂无历史记录，先导出一次即可生成
 													</div>
-												);
-											})}
+												)}
+												{idHistory.length > 0 && (
+													<div className="grid max-h-[300px] grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
+														{idHistory.map((item) => {
+															const key = buildSnapshotKey(item);
+															return (
+																<div
+																	key={key}
+																	className="group relative flex min-w-0 items-center gap-1 rounded-md border bg-muted/25 text-sm transition hover:border-primary/60 hover:bg-primary/5"
+																>
+																	<button
+																		type="button"
+																		onClick={() => {
+																			addTextFromSnapshot(item);
+																		}}
+																		className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+																	>
+																		{item.presetKey &&
+																			(() => {
+																				const preset = presets.find(
+																					(p) => p.key === item.presetKey,
+																				);
+																				return preset ? (
+																					<img
+																						src={preset.icon}
+																						alt={preset.label}
+																						className="size-4 shrink-0"
+																						draggable={false}
+																					/>
+																				) : null;
+																			})()}
+																		<span
+																			className="truncate"
+																			style={{
+																				color: item.fill,
+																				fontFamily: item.fontFamily,
+																				fontWeight: item.fontWeight,
+																			}}
+																		>
+																			{item.text || "[空]"}
+																		</span>
+																	</button>
+																	<button
+																		type="button"
+																		onClick={(e) => {
+																			e.stopPropagation();
+																			removeHistoryItem(key);
+																		}}
+																		className="shrink-0 p-1 text-muted-foreground opacity-100 transition hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
+																		title="删除"
+																	>
+																		<X className="size-3" />
+																	</button>
+																</div>
+															);
+														})}
+													</div>
+												)}
+											</PopoverContent>
+										</Popover>
+
+										<div className="ml-auto flex items-center rounded-md border p-0.5">
+											<Button
+												type="button"
+												size="xs"
+												variant="ghost"
+												disabled={!image}
+												onClick={handleExport}
+												title={exportFormat === "png" ? "导出 PNG" : "导出 JPG"}
+												aria-label={
+													exportFormat === "png" ? "导出 PNG" : "导出 JPG"
+												}
+												className="px-2"
+											>
+												<Download className="size-3.5" />
+												导出
+											</Button>
+											<div className="mx-0.5 h-4 w-px bg-border" />
+											<Button
+												type="button"
+												size="xs"
+												variant={exportFormat === "png" ? "default" : "ghost"}
+												onClick={() => setExportFormat("png")}
+												title="导出 PNG"
+											>
+												PNG
+											</Button>
+											<Button
+												type="button"
+												size="xs"
+												variant={exportFormat === "jpeg" ? "default" : "ghost"}
+												onClick={() => setExportFormat("jpeg")}
+												title="导出 JPG"
+											>
+												JPG
+											</Button>
 										</div>
-									)}
-								</PopoverContent>
-							</Popover>
+									</div>
+								</div>
+							)}
+
+							{isDesktop && (
+								<div className="flex flex-col gap-2">
+									<div className="flex items-center gap-2">
+										<Button
+											className="flex-1"
+											disabled={!image}
+											onClick={() => addText("请输入")}
+										>
+											<Plus className="size-4" />
+											添加文字
+										</Button>
+										<div className="flex rounded-md border p-0.5">
+											<Button
+												type="button"
+												size="xs"
+												variant={exportFormat === "png" ? "default" : "ghost"}
+												onClick={() => setExportFormat("png")}
+												title="导出 PNG"
+											>
+												PNG
+											</Button>
+											<Button
+												type="button"
+												size="xs"
+												variant={exportFormat === "jpeg" ? "default" : "ghost"}
+												onClick={() => setExportFormat("jpeg")}
+												title="导出 JPG"
+											>
+												JPG
+											</Button>
+										</div>
+										<Button
+											variant="outline"
+											disabled={!image}
+											onClick={handleExport}
+										>
+											<Download className="size-4" />
+											导出
+										</Button>
+									</div>
+
+									<div className="flex items-center gap-2">
+										<Popover
+											open={presetPopoverOpen}
+											onOpenChange={(open) => {
+												setPresetPopoverOpen(open);
+												if (open) setHistoryPopoverOpen(false);
+											}}
+										>
+											<PopoverTrigger asChild>
+												<Button
+													variant="outline"
+													className="flex-1 justify-start"
+													disabled={!image}
+												>
+													<Palette className="size-4" />
+													门派预设
+												</Button>
+											</PopoverTrigger>
+											<PopoverContent
+												side="bottom"
+												align="start"
+												className="w-[320px] p-3"
+											>
+												<div className="mb-2 text-xs font-medium text-muted-foreground">
+													点击门派图标快速添加预设文字
+												</div>
+												<div className="grid grid-cols-7 gap-1.5">
+													{presets.map((p) => (
+														<button
+															key={p.key}
+															type="button"
+															onClick={() => {
+																addPreset(p.key);
+															}}
+															className="flex min-h-10 items-center justify-center rounded-md border p-1.5 transition hover:scale-105 hover:border-primary/60"
+															style={{ borderColor: p.color }}
+															title={p.label}
+														>
+															<img
+																src={p.icon}
+																alt={p.label}
+																className="size-7"
+																draggable={false}
+															/>
+														</button>
+													))}
+												</div>
+											</PopoverContent>
+										</Popover>
+
+										<Popover
+											open={historyPopoverOpen}
+											onOpenChange={(open) => {
+												setHistoryPopoverOpen(open);
+												if (open) setPresetPopoverOpen(false);
+											}}
+										>
+											<PopoverTrigger asChild>
+												<Button
+													variant="outline"
+													className="flex-1 justify-start"
+													disabled={!image}
+												>
+													<History className="size-4" />
+													历史
+													{idHistory.length > 0 && (
+														<span className="ml-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] leading-none text-primary">
+															{idHistory.length}
+														</span>
+													)}
+												</Button>
+											</PopoverTrigger>
+											<PopoverContent
+												side="bottom"
+												align="end"
+												className="w-[320px] p-3"
+											>
+												<div className="mb-2 text-xs text-muted-foreground">
+													导出时自动记录当前图片的 ID 样式，点击可一键复用
+												</div>
+												{idHistory.length === 0 && (
+													<div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+														暂无历史记录，先导出一次即可生成
+													</div>
+												)}
+												{idHistory.length > 0 && (
+													<div className="grid max-h-[300px] grid-cols-2 gap-1.5 overflow-y-auto">
+														{idHistory.map((item) => {
+															const key = buildSnapshotKey(item);
+															return (
+																<div
+																	key={key}
+																	className="group relative flex min-w-0 items-center gap-1 rounded-md border bg-muted/25 text-sm transition hover:border-primary/60 hover:bg-primary/5"
+																>
+																	<button
+																		type="button"
+																		onClick={() => {
+																			addTextFromSnapshot(item);
+																		}}
+																		className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+																	>
+																		{item.presetKey &&
+																			(() => {
+																				const preset = presets.find(
+																					(p) => p.key === item.presetKey,
+																				);
+																				return preset ? (
+																					<img
+																						src={preset.icon}
+																						alt={preset.label}
+																						className="size-4 shrink-0"
+																						draggable={false}
+																					/>
+																				) : null;
+																			})()}
+																		<span
+																			className="truncate"
+																			style={{
+																				color: item.fill,
+																				fontFamily: item.fontFamily,
+																				fontWeight: item.fontWeight,
+																			}}
+																		>
+																			{item.text || "[空]"}
+																		</span>
+																	</button>
+																	<button
+																		type="button"
+																		onClick={(e) => {
+																			e.stopPropagation();
+																			removeHistoryItem(key);
+																		}}
+																		className="shrink-0 p-1 text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100"
+																		title="删除"
+																	>
+																		<X className="size-3" />
+																	</button>
+																</div>
+															);
+														})}
+													</div>
+												)}
+											</PopoverContent>
+										</Popover>
+									</div>
+								</div>
+							)}
 						</div>
 
 						<div className="h-px bg-border" />
@@ -682,7 +951,7 @@ function App() {
 										/>
 									</div>
 
-									<div className="flex items-center gap-2">
+									<div className="flex flex-wrap items-center gap-2">
 										<div className="text-xs text-muted-foreground">排版</div>
 										<div className="flex items-center rounded-md border p-0.5">
 											<Button
@@ -708,8 +977,9 @@ function App() {
 												竖排
 											</Button>
 										</div>
-										<div className="ml-auto">
+										<div className="ml-auto sm:ml-auto">
 											<ColorPickerPopover
+												key={`fill-color-popover-${popoverEpoch}`}
 												label="颜色"
 												color={fillValue}
 												onChange={(c) => {
@@ -721,6 +991,7 @@ function App() {
 									</div>
 
 									<FontSelector
+										key={`font-selector-${popoverEpoch}`}
 										value={fontFamilyValue}
 										onChange={(v) => {
 											setFontFamilyValue(v);
@@ -838,7 +1109,7 @@ function App() {
 													<div className="text-xs text-muted-foreground">
 														描边样式
 													</div>
-													<div className="flex items-center rounded-md border p-0.5">
+													<div className="grid grid-cols-3 items-center rounded-md border p-0.5">
 														<Button
 															type="button"
 															size="xs"
@@ -906,6 +1177,7 @@ function App() {
 												</div>
 
 												<ColorPickerPopover
+													key={`stroke-color-popover-${popoverEpoch}`}
 													label="描边颜色"
 													color={strokeColor}
 													showSchoolPresets={false}

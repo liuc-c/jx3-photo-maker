@@ -210,7 +210,11 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 						)}
 					</Button>
 				</PopoverTrigger>
-				<PopoverContent className="w-[320px] p-0" side="left" align="start">
+				<PopoverContent
+					className="w-[calc(100vw-1rem)] max-w-[360px] p-0"
+					side="bottom"
+					align="start"
+				>
 					<div className="flex flex-col">
 						<div className="flex items-center gap-2 border-b px-3 py-2">
 							<Search className="size-4 shrink-0 text-muted-foreground" />
@@ -218,11 +222,11 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 								value={search}
 								onChange={(e) => setSearch(e.target.value)}
 								placeholder="搜索字体..."
-								className="h-7 border-0 p-0 shadow-none focus-visible:ring-0"
+								className="h-9 border-0 p-0 shadow-none focus-visible:ring-0"
 							/>
 						</div>
 
-						<div className="max-h-[280px] overflow-y-auto p-1">
+						<div className="max-h-[320px] overflow-y-auto p-1">
 							{filtered.length === 0 && (
 								<div className="px-3 py-6 text-center text-sm text-muted-foreground">
 									未找到匹配字体
@@ -239,7 +243,7 @@ export function FontSelector({ value, onChange }: FontSelectorProps) {
 									<button
 										key={`${f.source}-${f.family}`}
 										type="button"
-										className={`relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent ${
+										className={`relative flex min-h-10 w-full cursor-pointer items-center gap-3 overflow-hidden rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent ${
 											f.family === value ? "bg-accent" : ""
 										} ${isLoading ? "pointer-events-none" : ""}`}
 										onClick={() => void handleSelectFont(f)}
